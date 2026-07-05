@@ -1,0 +1,32 @@
+{
+  "diagnostics": [],
+  "dump_provenance": null,
+  "items": [
+    {
+      "name": "iron-plate",
+      "prototype_type": "item",
+      "stack_size": 100
+    }
+  ],
+  "milestones": [],
+  "recipes": [
+    {
+      "category": "smelting",
+      "coefficients": [
+        {
+          "amount": -1.0,
+          "coefficient_kind": "output",
+          "item_name": "iron-plate"
+        }
+      ],
+      "enabled": true,
+      "energy_required": 3.2,
+      "hidden": false,
+      "name": "invalid-smelt-iron"
+    }
+  ],
+  "resource_sources": [],
+  "save_settings_provenance": null,
+  "startup_settings": [],
+  "technologies": []
+}

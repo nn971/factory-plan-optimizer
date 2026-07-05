@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Agent/workflow scratch state
+.omo/
+.slim/
+.superpowers/
+.ignore
+
+data/raw/
+data/generated/
+*.factorio-save-fixture-output/
+*data-raw-dump*.json
+*full-dump*.json
+*prototype-dump*.json

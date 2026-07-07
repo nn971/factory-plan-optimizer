@@ -25,6 +25,7 @@ from factory_plan_optimizer.milestones import (
     calculate_milestone_recipe_set,
     load_milestone_definitions,
 )
+from factory_plan_optimizer.planning import solve_planning_lp
 from factory_plan_optimizer.save_settings import (
     FixtureSaveModSettingsExtractor,
     SaveSettingsExtractionError,
@@ -46,12 +47,15 @@ commands:
             --output-dir PATH [--dry-run]
   normalize-dump --dump PATH --output PATH [--diagnostics PATH]
   export-milestone --dataset PATH --milestones PATH --milestone NAME [--output PATH]
+  plan --dataset PATH [--milestones PATH --milestone NAME] --demand ITEM=RATE/min
+       --output PATH [--allow-relax-inputs]
   report --dataset PATH [--settings PATH] [--milestone-output PATH]
 """
 EXTRACT_SAVE_SETTINGS_CONTEXT: Final = "extract-save-settings"
 NORMALIZE_DUMP_CONTEXT: Final = "normalize-dump"
 EXPORT_MILESTONE_CONTEXT: Final = "export-milestone"
 REPORT_CONTEXT: Final = "report"
+PLAN_CONTEXT: Final = "plan"
 MAX_REPORTED_RECIPE_NAMES: Final = 10
 
 
@@ -86,6 +90,16 @@ class _ReportArguments:
     milestone_output_path: Path | None
 
 
+@dataclass(frozen=True, slots=True)
+class _PlanArguments:
+    dataset_path: Path
+    milestones_path: Path | None
+    milestone_name: str | None
+    demands_per_minute: Mapping[str, float]
+    output_path: Path
+    allow_relax_inputs: bool
+
+
 def main(arguments: Sequence[str] | None = None) -> int:  # noqa: PLR0911
     parsed_arguments = sys.argv[1:] if arguments is None else list(arguments)
 
@@ -111,6 +125,9 @@ def main(arguments: Sequence[str] | None = None) -> int:  # noqa: PLR0911
 
     if parsed_arguments[:1] == ["export-milestone"]:
         return _export_milestone(parsed_arguments[1:])
+
+    if parsed_arguments[:1] == ["plan"]:
+        return _plan(parsed_arguments[1:])
 
     if parsed_arguments[:1] == ["report"]:
         return _report(parsed_arguments[1:])
@@ -289,6 +306,89 @@ def _report(arguments: Sequence[str]) -> int:
     return 0
 
 
+def _plan(arguments: Sequence[str]) -> int:
+    try:
+        parsed = _parse_plan_arguments(arguments)
+        dataset = OptimizerRecipeDataset.from_json(
+            parsed.dataset_path.read_text(encoding="utf-8")
+        )
+        _validate_plan_milestone_pair(parsed)
+        if parsed.milestones_path is not None and parsed.milestone_name is not None:
+            definitions = load_milestone_definitions(
+                parsed.milestones_path.read_text(encoding="utf-8")
+            )
+            definition = _milestone_definition(definitions, parsed.milestone_name)
+            dataset = _milestone_dataset(
+                dataset,
+                calculate_milestone_recipe_set(dataset, definition),
+            )
+        demands_per_second = {
+            name: rate / 60.0 for name, rate in parsed.demands_per_minute.items()
+        }
+        plan = solve_planning_lp(
+            dataset,
+            demands_per_second,
+            allow_relax_inputs=parsed.allow_relax_inputs,
+        )
+    except FileNotFoundError as error:
+        sys.stderr.write(f"error: file not found: {error.filename}\n")
+        return 1
+    except OSError as error:
+        sys.stderr.write(f"error: could not read or write plan data: {error}\n")
+        return 1
+    except (DatasetParseError, MilestoneFailure) as error:
+        sys.stderr.write(f"error: {error}\n")
+        return 2
+
+    result = plan.result
+    output = {
+        "status": result.status,
+        "demands_per_minute": dict(parsed.demands_per_minute),
+        "demands_per_second": demands_per_second,
+        "selected_recipe_rates_per_second": _nonzero(result.recipe_rates),
+        "raw_external_inputs_per_second": _nonzero(result.external_supplies),
+        "unmet_demand_per_second": _nonzero(result.unmet_demand),
+        "objective_components": dict(result.objective_components),
+        "objective_value": result.objective_value,
+        "max_abs_balance_residual": max(
+            (abs(value) for value in result.balance_residuals.values()),
+            default=0.0,
+        ),
+        "accepted_inputs": sorted(plan.package.external_supplies),
+        "accepted_input_policy": plan.accepted_input_policy,
+        "relaxation_steps": [
+            {
+                "added_input": step.added_input,
+                "status": step.status,
+                "unmet_demand": dict(step.unmet_demand),
+                "selected_recipe_count": step.selected_recipe_count,
+            }
+            for step in plan.relaxation_steps
+        ],
+        "input_counts": {
+            "items": len(dataset.items),
+            "recipes": len(dataset.recipes),
+            "resource_sources": len(dataset.resource_sources),
+        },
+        "message": result.message,
+        "details": result.details,
+    }
+    _write_json_output(parsed.output_path, _json_text(output))
+    sys.stdout.write(
+        f"planned {len(_nonzero(result.recipe_rates))} recipes, "
+        f"status {result.status}\n"
+    )
+    return 0
+
+
+def _validate_plan_milestone_pair(parsed: _PlanArguments) -> None:
+    if (parsed.milestones_path is None) != (parsed.milestone_name is None):
+        raise DatasetParseError(
+            PLAN_CONTEXT,
+            "--milestones and --milestone must be provided together",
+        )
+
+
 def _read_report_settings(path: Path | None) -> OptimizerRecipeDataset | None:
     if path is None:
         return None
@@ -431,19 +531,52 @@ def _parse_extract_save_settings_arguments(
         flag = arguments[index]
         match flag:
             case "--save":
-                save_path = Path(_flag_value(arguments, index, flag))
+                save_path = Path(
+                    _flag_value(
+                        arguments,
+                        index,
+                        flag,
+                        context=EXTRACT_SAVE_SETTINGS_CONTEXT,
+                    )
+                )
                 index += 2
             case "--factorio-bin":
-                factorio_executable = Path(_flag_value(arguments, index, flag))
+                factorio_executable = Path(
+                    _flag_value(
+                        arguments,
+                        index,
+                        flag,
+                        context=EXTRACT_SAVE_SETTINGS_CONTEXT,
+                    )
+                )
                 index += 2
             case "--mod-directory":
-                mod_directory = Path(_flag_value(arguments, index, flag))
+                mod_directory = Path(
+                    _flag_value(
+                        arguments,
+                        index,
+                        flag,
+                        context=EXTRACT_SAVE_SETTINGS_CONTEXT,
+                    )
+                )
                 index += 2
             case "--output" | "--output-settings":
-                output_path = Path(_flag_value(arguments, index, flag))
+                output_path = Path(
+                    _flag_value(
+                        arguments,
+                        index,
+                        flag,
+                        context=EXTRACT_SAVE_SETTINGS_CONTEXT,
+                    )
+                )
                 index += 2
             case "--format":
-                output_format = _flag_value(arguments, index, flag)
+                output_format = _flag_value(
+                    arguments,
+                    index,
+                    flag,
+                    context=EXTRACT_SAVE_SETTINGS_CONTEXT,
+                )
                 index += 2
             case _:
                 reason = f"unknown flag {flag}"
@@ -600,6 +733,78 @@ def _parse_report_arguments(arguments: Sequence[str]) -> _ReportArguments:
     )
 
 
+def _parse_plan_arguments(arguments: Sequence[str]) -> _PlanArguments:  # noqa: C901
+    dataset_path: Path | None = None
+    milestones_path: Path | None = None
+    milestone_name: str | None = None
+    output_path: Path | None = None
+    demands: dict[str, float] = {}
+    allow_relax_inputs = False
+    index = 0
+    while index < len(arguments):
+        flag = arguments[index]
+        match flag:
+            case "--dataset":
+                dataset_path = Path(
+                    _flag_value(arguments, index, flag, context=PLAN_CONTEXT)
+                )
+                index += 2
+            case "--milestones":
+                milestones_path = Path(
+                    _flag_value(arguments, index, flag, context=PLAN_CONTEXT)
+                )
+                index += 2
+            case "--milestone":
+                milestone_name = _flag_value(
+                    arguments, index, flag, context=PLAN_CONTEXT
+                )
+                index += 2
+            case "--demand":
+                name, rate = _parse_demand(
+                    _flag_value(arguments, index, flag, context=PLAN_CONTEXT)
+                )
+                demands[name] = rate
+                index += 2
+            case "--output":
+                output_path = Path(
+                    _flag_value(arguments, index, flag, context=PLAN_CONTEXT)
+                )
+                index += 2
+            case "--allow-relax-inputs":
+                allow_relax_inputs = True
+                index += 1
+            case _:
+                raise DatasetParseError(PLAN_CONTEXT, f"unknown flag {flag}")
+    if dataset_path is None:
+        raise DatasetParseError(PLAN_CONTEXT, "--dataset is required")
+    if output_path is None:
+        raise DatasetParseError(PLAN_CONTEXT, "--output is required")
+    if not demands:
+        raise DatasetParseError(PLAN_CONTEXT, "at least one --demand is required")
+    return _PlanArguments(
+        dataset_path,
+        milestones_path,
+        milestone_name,
+        demands,
+        output_path,
+        allow_relax_inputs,
+    )
+
+
+def _parse_demand(value: str) -> tuple[str, float]:
+    if "=" not in value:
+        raise DatasetParseError(PLAN_CONTEXT, "--demand must be ITEM=RATE/min")
+    item, rate_text = value.split("=", 1)
+    rate_text = rate_text.removesuffix("/min")
+    try:
+        rate = float(rate_text)
+    except ValueError as error:
+        raise DatasetParseError(
+            PLAN_CONTEXT, f"invalid demand rate {rate_text}"
+        ) from error
+    return item, rate
+
+
 def _milestone_definition(
     definitions: Mapping[str, MilestoneDefinition],
     milestone_name: str,
@@ -616,7 +821,7 @@ def _flag_value(
     index: int,
     flag: str,
     *,
-    context: str = EXTRACT_SAVE_SETTINGS_CONTEXT,
+    context: str,
 ) -> str:
     value_index = index + 1
     if value_index >= len(arguments):
@@ -639,6 +844,10 @@ def _write_json_output(output_path: Path | None, text: str) -> None:
 
 def _json_text(value: object) -> str:
     return json.dumps(value, indent=2, sort_keys=True) + "\n"
+
+
+def _nonzero(values: Mapping[str, float], tolerance: float = 1e-7) -> dict[str, float]:
+    return {name: value for name, value in values.items() if abs(value) > tolerance}
 
 
 if __name__ == "__main__":

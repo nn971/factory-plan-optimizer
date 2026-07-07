@@ -10,14 +10,16 @@ from factory_plan_optimizer.save_settings import (
     SaveSettingsExtractionError,
     SaveSettingsStatus,
 )
+from paths import FIXTURES_ROOT
 
 SHA256_HEX_LENGTH = 64
 MISSING_SAVE_NEXT_ACTION = "Provide an existing Factorio save path via --save."
+SAVE_SETTINGS_FIXTURES = FIXTURES_ROOT / "save_settings"
 
 
 def test_extracts_fixture_save_settings_with_deterministic_provenance() -> None:
     # Given: a synthetic save zip containing a save-derived settings artifact.
-    save_path = Path("tests/fixtures/save_settings/minimal-save.zip")
+    save_path = SAVE_SETTINGS_FIXTURES / "minimal-save.zip"
     extractor = FixtureSaveModSettingsExtractor()
 
     # When: the artifact is extracted through the save settings boundary.
@@ -44,7 +46,7 @@ def test_extracts_fixture_save_settings_with_deterministic_provenance() -> None:
 
 def test_missing_save_path_fails_with_exact_next_action() -> None:
     # Given: a save path that does not exist.
-    save_path = Path("tests/fixtures/save_settings/missing.zip")
+    save_path = SAVE_SETTINGS_FIXTURES / "missing.zip"
     extractor = FixtureSaveModSettingsExtractor()
 
     # When / Then: extraction fails with a structured next action.
@@ -57,7 +59,7 @@ def test_missing_save_path_fails_with_exact_next_action() -> None:
 
 def test_malformed_settings_member_fails_at_boundary() -> None:
     # Given: a synthetic save with an invalid settings artifact shape.
-    save_path = Path("tests/fixtures/save_settings/malformed-save.zip")
+    save_path = SAVE_SETTINGS_FIXTURES / "malformed-save.zip"
     extractor = FixtureSaveModSettingsExtractor()
 
     # When / Then: invalid member data is rejected before optimizer models see it.
@@ -71,7 +73,7 @@ def test_malformed_settings_member_fails_at_boundary() -> None:
 def test_cli_writes_settings_json_for_fixture_save(tmp_path: Path) -> None:
     # Given: the real CLI surface and a synthetic save zip.
     output_path = tmp_path / "settings.json"
-    save_path = Path("tests/fixtures/save_settings/minimal-save.zip")
+    save_path = SAVE_SETTINGS_FIXTURES / "minimal-save.zip"
 
     # When: the extract-save-settings command is driven through the module CLI.
     completed = subprocess.run(
@@ -112,7 +114,7 @@ def test_cli_missing_save_writes_structured_failure(tmp_path: Path) -> None:
             "factory_plan_optimizer",
             "extract-save-settings",
             "--save",
-            "tests/fixtures/save_settings/missing.zip",
+            str(SAVE_SETTINGS_FIXTURES / "missing.zip"),
             "--output",
             str(output_path),
             "--format",

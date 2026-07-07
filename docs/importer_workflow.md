@@ -3,33 +3,25 @@
 The importer commands prepare recipe data for later optimizer work. They do not
 run a solver, build a GUI, or generate blueprints.
 
-## Save-derived settings
-
-Extract startup settings from a user-provided save artifact:
-
-```bash
-python -m factory_plan_optimizer extract-save-settings \
-  --save /path/to/save.zip \
-  --factorio-bin /path/to/factorio \
-  --mod-directory /path/to/mods \
-  --output .omo/evidence/task-3-settings.json
-```
-
 ## Dump data.raw
 
-The `dump-data` wrapper prepares the selected save-derived settings and records
-the underlying Factorio `--dump-data` command. Only `--dry-run` is currently
-available. Non-dry-run exits with a structured `factorio_dump_unavailable` error
-until a real isolated Factorio settings workflow exists.
+The importer no longer extracts startup settings from a save archive. Provide a
+separate startup settings JSON file when one is needed. The `dump-data` wrapper
+validates that this file is readable JSON, stages a copy next to the dump output,
+and records the underlying Factorio `--dump-data` command.
+
+Only `--dry-run` is currently available. Non-dry-run exits with a structured
+`factorio_dump_unavailable` error until a real isolated Factorio settings
+workflow exists.
 
 Dry-run the Factorio dump command shape:
 
 ```bash
 python -m factory_plan_optimizer dump-data \
   --factorio-bin /path/to/factorio \
-  --settings .omo/evidence/task-3-settings.json \
+  --settings /path/to/startup-settings.json \
   --mod-directory /path/to/mods \
-  --output-dir .omo/evidence/dump \
+  --output-dir data/generated/importer-workflow/dump \
   --dry-run
 ```
 
@@ -38,18 +30,18 @@ Non-dry-run is intentionally blocked for now:
 ```bash
 python -m factory_plan_optimizer dump-data \
   --factorio-bin /path/to/factorio \
-  --settings .omo/evidence/task-3-settings.json \
+  --settings /path/to/startup-settings.json \
   --mod-directory /path/to/mods \
-  --output-dir .omo/evidence/dump
+  --output-dir data/generated/importer-workflow/dump
 ```
 
 ## Normalize dump
 
 ```bash
 python -m factory_plan_optimizer normalize-dump \
-  --dump .omo/evidence/dump/script-output/data-raw-dump.json \
-  --output .omo/evidence/task-5-dataset.json \
-  --diagnostics .omo/evidence/task-5-diagnostics.json
+  --dump data/generated/importer-workflow/dump/script-output/data-raw-dump.json \
+  --output data/generated/importer-workflow/dataset.json \
+  --diagnostics data/generated/importer-workflow/diagnostics.json
 ```
 
 Normalized recipe coefficients use `a_ir`: positive values are outputs and
@@ -59,10 +51,10 @@ negative values are inputs.
 
 ```bash
 python -m factory_plan_optimizer export-milestone \
-  --dataset .omo/evidence/task-5-dataset.json \
+  --dataset data/generated/importer-workflow/dataset.json \
   --milestones examples/milestones.json \
   --milestone basic-circuits \
-  --output .omo/evidence/task-6-basic-circuits.json
+  --output data/generated/importer-workflow/basic-circuits.json
 ```
 
 The export is an `OptimizerRecipeDataset` JSON containing only recipes available
@@ -73,19 +65,31 @@ dataset/milestone diagnostics.
 
 ```bash
 python -m factory_plan_optimizer report \
-  --settings .omo/evidence/task-3-settings.json \
-  --dataset .omo/evidence/task-5-dataset.json \
-  --milestone-output .omo/evidence/task-6-basic-circuits.json
+  --settings /path/to/startup-settings.json \
+  --dataset data/generated/importer-workflow/dataset.json \
+  --milestone-output data/generated/importer-workflow/basic-circuits.json
 ```
 
-The report summarizes save settings provenance, dump provenance when present,
+The report summarizes settings metadata when present, dump provenance,
 normalized counts, diagnostics, and milestone recipe deltas/counts.
 
 ## Artifact policy
 
-Do not commit real saves, mod zip files, full `data.raw` dumps, or generated
-large datasets. Keep only small hand-written fixtures and concise evidence files
-that are safe to review.
+Write generated importer artifacts under `data/generated/`, not under `.omo/`.
+The `.omo/` directory is reserved for agent/workflow scratch state. Do not commit
+real saves, mod zip files, full `data.raw` dumps, or generated large datasets.
+Keep only small hand-written fixtures and concise evidence files that are safe to
+review.
+
+The real-save smoke-test artifacts from local verification are stored in:
+
+```text
+data/generated/real-save-test/
+```
+
+Those artifacts include the copied `data.raw` dump, normalized dataset,
+diagnostics, generated science milestones, and milestone recipe exports. The
+directory is ignored by git through the `data/generated/` rule.
 
 ## Limitations
 

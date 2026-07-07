@@ -1,13 +1,13 @@
 import json
 import re
-from pathlib import Path
 
 import pytest
 
 from factory_plan_optimizer.data_raw_normalization import normalize_data_raw_dump
 from factory_plan_optimizer.import_models import DatasetParseError
+from paths import FIXTURES_ROOT
 
-FIXTURE_DIR = Path("tests/fixtures/data_raw")
+FIXTURE_DIR = FIXTURES_ROOT / "data_raw"
 VARIANT_ENERGY_REQUIRED = 3.0
 
 

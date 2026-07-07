@@ -12,6 +12,10 @@ from factory_plan_optimizer.dump_data import (
     DumpDataStatus,
     acquire_factorio_dump,
 )
+from paths import FIXTURES_ROOT
+
+IMPORT_SETTINGS_FIXTURES = FIXTURES_ROOT / "import_settings"
+MOD_FIXTURES = FIXTURES_ROOT / "mods"
 
 
 class RecordingRunner:
@@ -32,9 +36,9 @@ class RecordingRunner:
 
 
 def test_dry_run_records_deterministic_command_and_provenance(tmp_path: Path) -> None:
-    # Given: an existing executable, save-derived settings artifact, and mod directory.
-    settings_path = Path("tests/fixtures/save_settings/minimal-save/save-settings.json")
-    mod_directory = Path("tests/fixtures/mods")
+    # Given: an existing executable, startup settings JSON, and mod directory.
+    settings_path = IMPORT_SETTINGS_FIXTURES / "minimal-settings.json"
+    mod_directory = MOD_FIXTURES
     mod_directory.mkdir(exist_ok=True)
     request = DumpDataRequest(
         factorio_executable=Path("/bin/echo"),
@@ -68,10 +72,8 @@ def test_missing_factorio_executable_fails_before_runner(tmp_path: Path) -> None
     # Given: a request with a missing Factorio executable.
     request = DumpDataRequest(
         factorio_executable=Path("/no/such/factorio"),
-        settings_path=Path(
-            "tests/fixtures/save_settings/minimal-save/save-settings.json"
-        ),
-        mod_directory=Path("tests/fixtures/mods"),
+        settings_path=IMPORT_SETTINGS_FIXTURES / "minimal-settings.json",
+        mod_directory=MOD_FIXTURES,
         output_dir=tmp_path,
         dry_run=True,
     )
@@ -89,10 +91,8 @@ def test_non_dry_run_is_unavailable_before_runner(tmp_path: Path) -> None:
     # Given: a runner seam that must not be invoked until isolation exists.
     request = DumpDataRequest(
         factorio_executable=Path("/bin/echo"),
-        settings_path=Path(
-            "tests/fixtures/save_settings/minimal-save/save-settings.json"
-        ),
-        mod_directory=Path("tests/fixtures/mods"),
+        settings_path=IMPORT_SETTINGS_FIXTURES / "minimal-settings.json",
+        mod_directory=MOD_FIXTURES,
         output_dir=tmp_path,
         dry_run=False,
     )
@@ -111,10 +111,8 @@ def test_non_dry_run_does_not_report_missing_dump(tmp_path: Path) -> None:
     # Given: a runner that would exit successfully without creating the dump.
     request = DumpDataRequest(
         factorio_executable=Path("/bin/echo"),
-        settings_path=Path(
-            "tests/fixtures/save_settings/minimal-save/save-settings.json"
-        ),
-        mod_directory=Path("tests/fixtures/mods"),
+        settings_path=IMPORT_SETTINGS_FIXTURES / "minimal-settings.json",
+        mod_directory=MOD_FIXTURES,
         output_dir=tmp_path,
         dry_run=False,
     )
@@ -146,7 +144,7 @@ def test_dump_provenance_includes_save_provenance_from_settings(tmp_path: Path) 
     request = DumpDataRequest(
         factorio_executable=Path("/bin/echo"),
         settings_path=settings_path,
-        mod_directory=Path("tests/fixtures/mods"),
+        mod_directory=MOD_FIXTURES,
         output_dir=tmp_path / "dump",
         dry_run=True,
     )
@@ -159,13 +157,13 @@ def test_dump_provenance_includes_save_provenance_from_settings(tmp_path: Path) 
 
 
 def test_malformed_settings_json_fails_at_boundary(tmp_path: Path) -> None:
-    # Given: a malformed save-derived settings artifact.
+    # Given: a malformed startup settings JSON file.
     settings_path = tmp_path / "settings.json"
     settings_path.write_text("{not json", encoding="utf-8")
     request = DumpDataRequest(
         factorio_executable=Path("/bin/echo"),
         settings_path=settings_path,
-        mod_directory=Path("tests/fixtures/mods"),
+        mod_directory=MOD_FIXTURES,
         output_dir=tmp_path / "dump",
         dry_run=True,
     )
@@ -191,9 +189,9 @@ def test_cli_dump_data_dry_run_prints_json(tmp_path: Path) -> None:
             "--factorio-bin",
             "/bin/echo",
             "--settings",
-            "tests/fixtures/save_settings/minimal-save/save-settings.json",
+            str(IMPORT_SETTINGS_FIXTURES / "minimal-settings.json"),
             "--mod-directory",
-            "tests/fixtures/mods",
+            str(MOD_FIXTURES),
             "--output-dir",
             str(output_dir),
             "--dry-run",
@@ -208,7 +206,7 @@ def test_cli_dump_data_dry_run_prints_json(tmp_path: Path) -> None:
     payload = json.loads(completed.stdout)
     assert payload["status"] == "dry_run"
     assert payload["provenance"]["command"][3] == "--dump-data"
-    assert payload["provenance"]["mod_directory"] == "tests/fixtures/mods"
+    assert payload["provenance"]["mod_directory"] == str(MOD_FIXTURES)
 
 
 def test_cli_dump_data_missing_executable_exits_nonzero(tmp_path: Path) -> None:
@@ -225,9 +223,9 @@ def test_cli_dump_data_missing_executable_exits_nonzero(tmp_path: Path) -> None:
             "--factorio-bin",
             "/no/such/factorio",
             "--settings",
-            "tests/fixtures/save_settings/minimal-save/save-settings.json",
+            str(IMPORT_SETTINGS_FIXTURES / "minimal-settings.json"),
             "--mod-directory",
-            "tests/fixtures/mods",
+            str(MOD_FIXTURES),
             "--output-dir",
             str(output_dir),
         ],

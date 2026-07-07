@@ -7,10 +7,15 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
 
 # Agent/workflow scratch state
 .omo/
 .slim/
+.slim/deepwork/
 .superpowers/
 .ignore
 

@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 
@@ -10,6 +9,7 @@ from factory_plan_optimizer.import_models import (
     RecipeCoefficient,
     RecipePrototype,
 )
+from paths import FIXTURES_ROOT
 
 
 def test_recipe_coefficients_round_trip_with_deterministic_json_order() -> None:
@@ -63,7 +63,7 @@ def test_recipe_coefficients_round_trip_with_deterministic_json_order() -> None:
 
 def test_dataset_parse_rejects_negative_output_coefficients() -> None:
     # Given: a fixture with an output coefficient using a negative a_ir value.
-    dataset_path = Path("tests/fixtures/invalid_negative_output.json")
+    dataset_path = FIXTURES_ROOT / "invalid_negative_output.json"
 
     # When / Then: parsing rejects the malformed recipe at the JSON boundary.
     with pytest.raises(DatasetParseError, match="output coefficient"):

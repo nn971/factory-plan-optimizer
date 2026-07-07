@@ -187,15 +187,15 @@ def _validate_settings_json(settings_path: Path, request: DumpDataRequest) -> No
         raise DumpDataError(
             status=DumpDataStatus.ERROR,
             code="missing_settings_json",
-            message=f"Save-derived settings JSON is unavailable: {settings_path}",
-            next_action="Create settings JSON with extract-save-settings first.",
+            message=f"Startup settings JSON is unavailable: {settings_path}",
+            next_action="Provide a readable startup settings JSON file.",
             request=request,
         ) from error
     except OSError as error:
         raise DumpDataError(
             status=DumpDataStatus.ERROR,
             code="unreadable_settings_json",
-            message=f"Could not read save-derived settings JSON: {error}",
+            message=f"Could not read startup settings JSON: {error}",
             next_action="Fix permissions or provide a readable settings JSON path.",
             request=request,
         ) from error
@@ -206,16 +206,16 @@ def _validate_settings_json(settings_path: Path, request: DumpDataRequest) -> No
         raise DumpDataError(
             status=DumpDataStatus.ERROR,
             code="malformed_settings_json",
-            message=f"Save-derived settings JSON is malformed: {error.msg}",
-            next_action="Regenerate settings JSON with extract-save-settings.",
+            message=f"Startup settings JSON is malformed: {error.msg}",
+            next_action="Fix or regenerate the startup settings JSON file.",
             request=request,
         ) from error
     if not isinstance(parsed, dict):
         raise DumpDataError(
             status=DumpDataStatus.ERROR,
             code="malformed_settings_json",
-            message="Save-derived settings JSON must be an object.",
-            next_action="Regenerate settings JSON with extract-save-settings.",
+            message="Startup settings JSON must be an object.",
+            next_action="Fix or regenerate the startup settings JSON file.",
             request=request,
         )
 

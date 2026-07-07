@@ -5,18 +5,20 @@ from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import TYPE_CHECKING
 
-from factory_plan_optimizer.import_models import (
-    DatasetParseError,
+from game_data_extractor.data_contracts.provenance_models import (
     ImportDiagnostic,
     MilestoneDefinition,
     MilestoneRecipeSet,
-    OptimizerRecipeDataset,
-    RecipePrototype,
-    TechnologyPrototype,
 )
+from game_data_extractor.data_contracts.types import DatasetParseError
 
 if TYPE_CHECKING:
-    from factory_plan_optimizer.import_types import JsonValue
+    from game_data_extractor.data_contracts.dataset import OptimizerRecipeDataset
+    from game_data_extractor.data_contracts.recipe_models import (
+        RecipePrototype,
+        TechnologyPrototype,
+    )
+    from game_data_extractor.data_contracts.types import JsonValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +27,7 @@ class MilestoneFailure(Exception):  # noqa: N818
 
     diagnostics: tuple[ImportDiagnostic, ...]
 
-    def __str__(self) -> str:  # noqa: D105
+    def __str__(self) -> str:
         return "; ".join(diagnostic.message for diagnostic in self.diagnostics)
 
 

@@ -26,8 +26,9 @@ export function createEditableProblem(problem: ProblemDto): EditableProblem {
   };
 }
 
-export function toSolveRequest(editable: EditableProblem): SolveRequestDto {
+export function toSolveRequest(editable: EditableProblem, packageId?: string | null): SolveRequestDto {
   return {
+    package_id: packageId ?? undefined,
     demands: Object.fromEntries(
       Object.entries(editable.demands)
         .map(([itemId, value]) => [itemId, parseNonnegativeNumber(value)] as const)

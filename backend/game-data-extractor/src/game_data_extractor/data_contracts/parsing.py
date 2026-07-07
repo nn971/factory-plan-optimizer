@@ -3,26 +3,30 @@ from __future__ import annotations
 import json
 from json import JSONDecodeError
 
-from factory_plan_optimizer.import_models import (
-    CoefficientKind,
-    DatasetParseError,
-    DiagnosticSeverity,
+from game_data_extractor.data_contracts.dataset import OptimizerRecipeDataset
+from game_data_extractor.data_contracts.provenance_models import (
     ImportDiagnostic,
-    ItemPrototype,
-    JsonValue,
     MilestoneRecipeSet,
-    OptimizerRecipeDataset,
-    PrototypeType,
+    StartupSetting,
+)
+from game_data_extractor.data_contracts.provenance_parsing import (
+    parse_dump_provenance_from_optional,
+    parse_save_provenance_from_optional,
+)
+from game_data_extractor.data_contracts.recipe_models import (
+    ItemPrototype,
     RecipeCoefficient,
     RecipePrototype,
     RecipeUnlock,
     ResourceSource,
-    StartupSetting,
     TechnologyPrototype,
 )
-from factory_plan_optimizer.import_provenance_parsing import (
-    parse_dump_provenance_from_optional,
-    parse_save_provenance_from_optional,
+from game_data_extractor.data_contracts.types import (
+    CoefficientKind,
+    DatasetParseError,
+    DiagnosticSeverity,
+    JsonValue,
+    PrototypeType,
 )
 
 

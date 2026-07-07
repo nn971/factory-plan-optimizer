@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from factory_plan_optimizer.save_settings import (
+from game_data_extractor.save_settings import (
     FixtureSaveModSettingsExtractor,
     SaveSettingsExtractionError,
     SaveSettingsStatus,
@@ -80,7 +80,7 @@ def test_cli_writes_settings_json_for_fixture_save(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "factory_plan_optimizer",
+            "game_data_extractor",
             "extract-save-settings",
             "--save",
             str(save_path),
@@ -111,7 +111,7 @@ def test_cli_missing_save_writes_structured_failure(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "factory_plan_optimizer",
+            "game_data_extractor",
             "extract-save-settings",
             "--save",
             str(SAVE_SETTINGS_FIXTURES / "missing.zip"),

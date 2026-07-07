@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from factory_plan_optimizer.dump_data import (
+from game_data_extractor.dump_data import (
     CommandRunResult,
     DumpDataError,
     DumpDataRequest,
@@ -184,7 +184,7 @@ def test_cli_dump_data_dry_run_prints_json(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "factory_plan_optimizer",
+            "game_data_extractor",
             "dump-data",
             "--factorio-bin",
             "/bin/echo",
@@ -218,7 +218,7 @@ def test_cli_dump_data_missing_executable_exits_nonzero(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "factory_plan_optimizer",
+            "game_data_extractor",
             "dump-data",
             "--factorio-bin",
             "/no/such/factorio",

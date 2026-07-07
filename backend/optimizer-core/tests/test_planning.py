@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import json
 
-from factory_plan_optimizer.__main__ import main
-from factory_plan_optimizer.import_models import (
+from game_data_extractor.data_contracts import (
     ItemPrototype,
     OptimizerRecipeDataset,
     RecipeCoefficient,
     RecipePrototype,
     ResourceSource,
 )
+
+from factory_plan_optimizer.__main__ import main
 from factory_plan_optimizer.planning import (
     accepted_early_pyanodon_inputs,
     dataset_to_factory_data_package,

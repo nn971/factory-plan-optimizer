@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from factory_plan_optimizer.dump_data import DUMP_DATA_CONTEXT, DumpDataRequest
-from factory_plan_optimizer.import_models import DatasetParseError
+from game_data_extractor.data_contracts import DatasetParseError
+from game_data_extractor.dump_data import DUMP_DATA_CONTEXT, DumpDataRequest
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

@@ -9,9 +9,13 @@ description = "Experimental hierarchical factory-planning optimizer scaffold."
 readme = "../../README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "game-data-extractor",
     "highspy>=1.12",
     "pyomo>=6.9",
 ]
+
+[tool.uv.sources]
+game-data-extractor = { workspace = true }
 
 [project.scripts]
 factory-plan-optimizer = "factory_plan_optimizer.__main__:main"
@@ -75,26 +79,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/factory_plan_optimizer/import_*.py" = [
-    "D101",
-    "D102",
-    "D105",
-]
-"src/factory_plan_optimizer/dump_data.py" = [
-    "D101",
-    "D102",
-    "D105",
-    "S603",
-]
-"src/factory_plan_optimizer/dump_data_cli.py" = [
-    "D101",
-    "D102",
-]
-"src/factory_plan_optimizer/save_settings.py" = [
-    "D101",
-    "D102",
-    "D105",
-]
 "tests/**/*.py" = [
     "D",
     "S101",

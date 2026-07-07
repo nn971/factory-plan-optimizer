@@ -7,20 +7,20 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from factory_plan_optimizer.import_provenance_models import (
+    from game_data_extractor.data_contracts.provenance_models import (
         DumpProvenance,
         ImportDiagnostic,
         MilestoneRecipeSet,
         SaveSettingsProvenance,
         StartupSetting,
     )
-    from factory_plan_optimizer.import_recipe_models import (
+    from game_data_extractor.data_contracts.recipe_models import (
         ItemPrototype,
         RecipePrototype,
         ResourceSource,
         TechnologyPrototype,
     )
-    from factory_plan_optimizer.import_types import JsonValue
+    from game_data_extractor.data_contracts.types import JsonValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +46,7 @@ class OptimizerRecipeDataset:
 
     @classmethod
     def from_json(cls, text: str) -> OptimizerRecipeDataset:
-        from factory_plan_optimizer.import_parsing import (  # noqa: PLC0415
+        from game_data_extractor.data_contracts.parsing import (  # noqa: PLC0415
             parse_dataset_json,
         )
 

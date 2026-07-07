@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from factory_plan_optimizer.import_types import DiagnosticSeverity, JsonValue
+    from game_data_extractor.data_contracts.types import DiagnosticSeverity, JsonValue
 
 
 @dataclass(frozen=True, slots=True)

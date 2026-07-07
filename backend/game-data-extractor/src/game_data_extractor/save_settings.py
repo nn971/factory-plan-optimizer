@@ -8,7 +8,7 @@ from json import JSONDecodeError
 from typing import TYPE_CHECKING, Protocol
 from zipfile import BadZipFile, ZipFile
 
-from factory_plan_optimizer.import_models import (
+from game_data_extractor.data_contracts import (
     DatasetParseError,
     JsonValue,
     SaveSettingsProvenance,

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import pytest
-
-from factory_plan_optimizer.optimizer import (
+from game_data_extractor.data_contracts import (
     SCHEMA_VERSION,
     ExternalSupply,
     FactoryDataPackage,
     Item,
     Recipe,
+)
+
+from factory_plan_optimizer.optimizer import (
     global_recipe_lp,
     solve_global_recipe_lp,
 )

@@ -4,12 +4,12 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from factory_plan_optimizer.optimizer.factory_data_loader import (
+from game_data_extractor.data_contracts import (
     load_factory_data_package,
 )
 
 if TYPE_CHECKING:
-    from factory_plan_optimizer.optimizer.models import FactoryDataPackage
+    from game_data_extractor.data_contracts import FactoryDataPackage
 
 DEFAULT_DATA_PATH_ENV = "FACTORY_PLAN_DEFAULT_DATA_PATH"
 
@@ -20,6 +20,11 @@ def default_data_path() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     repository_root = Path(__file__).resolve().parents[4]
+    curated_default = (
+        repository_root / "data" / "packages" / "default.factory-data.json"
+    )
+    if curated_default.exists():
+        return curated_default
     return repository_root / "examples" / "data" / "toy_iron.factory-data.json"
 
 

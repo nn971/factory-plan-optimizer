@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from factory_plan_optimizer.import_models import (
-    DatasetParseError,
+from game_data_extractor.data_contracts.provenance_models import (
     DumpProvenance,
-    JsonValue,
     SaveSettingsProvenance,
 )
+from game_data_extractor.data_contracts.types import DatasetParseError, JsonValue
 
 
 def parse_save_provenance_from_optional(

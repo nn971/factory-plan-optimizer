@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import pytest
-
-from factory_plan_optimizer.optimizer import (
+from game_data_extractor.data_contracts import (
     FactoryDataPackage,
     load_factory_data_package,
-    solve_global_recipe_lp,
 )
+
+from factory_plan_optimizer.optimizer import solve_global_recipe_lp
 from paths import EXAMPLES_DATA_ROOT
 
 EXAMPLE_PATH = EXAMPLES_DATA_ROOT / "toy_iron.factory-data.json"

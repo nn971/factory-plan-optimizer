@@ -1,0 +1,9 @@
+{
+  "enabled_mods": "base",
+  "startup_settings": [
+    {
+      "name": "bad-setting",
+      "setting_type": "startup"
+    }
+  ]
+}

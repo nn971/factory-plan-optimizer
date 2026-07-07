@@ -3,8 +3,7 @@ from collections.abc import Callable
 from typing import cast
 
 import pytest
-
-from factory_plan_optimizer.optimizer import (
+from game_data_extractor.data_contracts import (
     SCHEMA_VERSION,
     FactoryDataPackage,
     FactoryDataPackageParseError,

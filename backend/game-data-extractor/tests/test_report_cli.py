@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from factory_plan_optimizer.__main__ import main
-from factory_plan_optimizer.import_models import (
+from game_data_extractor.__main__ import main
+from game_data_extractor.data_contracts import (
     DumpProvenance,
     ImportDiagnostic,
     ItemPrototype,

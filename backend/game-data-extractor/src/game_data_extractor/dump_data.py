@@ -10,10 +10,10 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from factory_plan_optimizer.import_models import DumpProvenance
+from game_data_extractor.data_contracts import DumpProvenance
 
 if TYPE_CHECKING:
-    from factory_plan_optimizer.import_types import JsonValue
+    from game_data_extractor.data_contracts import JsonValue
 
 DUMP_DATA_CONTEXT = "dump-data"
 DUMP_FILE = Path("script-output") / "data-raw-dump.json"

@@ -1,5 +1,6 @@
 [tool.uv.workspace]
 members = [
     "backend/api",
+    "backend/game-data-extractor",
     "backend/optimizer-core",
 ]

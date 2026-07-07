@@ -1,0 +1,28 @@
+{
+  "enabled_mods": [
+    {
+      "name": "base",
+      "version": "1.1.110"
+    },
+    {
+      "name": "toy-overhaul",
+      "version": "0.2.0"
+    }
+  ],
+  "factorio_version": "1.1.110",
+  "startup_settings": [
+    {
+      "name": "toy-overhaul-enable-byproducts",
+      "setting_type": "startup",
+      "value": "true"
+    },
+    {
+      "name": "toy-overhaul-ore-richness",
+      "setting_type": "startup",
+      "value": "normal"
+    }
+  ],
+  "warnings": [
+    "synthetic fixture: not a real Factorio save"
+  ]
+}

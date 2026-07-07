@@ -1,8 +1,10 @@
 # Optimizer data interface
 
-`FactoryDataPackage` is the canonical optimizer-facing data contract. Importers
-and generators may use richer internal models, but optimizer modules consume only
-this package shape.
+`FactoryDataPackage` is the canonical optimizer-facing data contract. It is
+defined in `game_data_extractor.data_contracts`; optimizer-core and the API may
+import that public contract package, but not extractor workflow modules.
+Importers and generators may use richer internal models, but optimizer modules
+consume only this package shape.
 
 ## Top-level package
 
@@ -98,14 +100,15 @@ semantic validation by the loader remains authoritative.
 
 ## Generator/importer versus optimizer responsibilities
 
-Generators/importers are responsible for reading Factorio/mod data, applying
+The `backend/game-data-extractor` package and `game-data-extractor` CLI are
+responsible for reading Factorio/mod data, applying
 startup settings and milestone filters, normalizing recipe coefficients, choosing
 which recipes and sources are exposed, converting units, and writing a
 `FactoryDataPackage`.
 
 The optimizer is responsible for validating the canonical package, building LP or
-later logistics-aware models, solving them, and returning structured results. In
-Phase 3, solver failures should be represented by a structured result object. The
+later logistics-aware models, solving them, and returning structured results.
+Solver failures should be represented by a structured result object. The
 optimizer must not import or depend on importer-internal models.
 
 ## Adapter mapping from importer datasets

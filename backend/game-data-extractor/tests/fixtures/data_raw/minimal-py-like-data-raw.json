@@ -1,0 +1,89 @@
+{
+  "fluid": {
+    "steam": {"name": "steam", "type": "fluid"}
+  },
+  "item": {
+    "ash": {"name": "ash", "stack_size": 100, "type": "item"},
+    "copper-plate": {"name": "copper-plate", "stack_size": 100, "type": "item"},
+    "copper-ore": {"name": "copper-ore", "stack_size": 50, "type": "item"},
+    "iron-gear-wheel": {"name": "iron-gear-wheel", "stack_size": 100, "type": "item"},
+    "iron-ore": {"name": "iron-ore", "stack_size": 50, "type": "item"},
+    "iron-plate": {"name": "iron-plate", "stack_size": 100, "type": "item"},
+    "stone": {"name": "stone", "stack_size": 50, "type": "item"}
+  },
+  "recipe": {
+    "ash-processing": {
+      "category": "crafting",
+      "enabled": false,
+      "energy_required": 2,
+      "ingredients": [{"amount": 1, "name": "mystery-dust", "type": "item"}],
+      "name": "ash-processing",
+      "results": [{"amount": 1, "name": "ash", "type": "item"}],
+      "type": "recipe"
+    },
+    "copper-smelting": {
+      "category": "smelting",
+      "enabled": true,
+      "energy_required": 3.2,
+      "ingredients": [["copper-ore", 1]],
+      "name": "copper-smelting",
+      "result": "copper-plate",
+      "result_count": 1,
+      "type": "recipe"
+    },
+    "hidden-steam": {
+      "category": "chemistry",
+      "enabled": false,
+      "energy_required": 1,
+      "hidden": true,
+      "ingredients": [{"amount": 1, "name": "water", "type": "fluid"}],
+      "name": "hidden-steam",
+      "results": [{"amount": 1, "name": "steam", "type": "fluid"}],
+      "type": "recipe"
+    },
+    "iron-gear-wheel": {
+      "category": "crafting",
+      "enabled": false,
+      "energy_required": 0.5,
+      "ingredients": [{"amount": 2, "name": "iron-plate", "type": "item"}],
+      "name": "iron-gear-wheel",
+      "result": "iron-gear-wheel",
+      "type": "recipe"
+    },
+    "iron-smelting-with-ash": {
+      "category": "smelting",
+      "enabled": true,
+      "energy_required": 3.2,
+      "ingredients": [["iron-ore", 1]],
+      "name": "iron-smelting-with-ash",
+      "normal": {
+        "ingredients": [["iron-ore", 1]],
+        "results": [{"amount": 1, "name": "iron-plate", "type": "item"}, {"amount": 0.25, "name": "ash", "type": "item"}]
+      },
+      "type": "recipe"
+    }
+  },
+  "resource": {
+    "copper-ore": {
+      "category": "basic-solid",
+      "minable": {"mining_time": 1, "result": "copper-ore"},
+      "name": "copper-ore",
+      "type": "resource"
+    },
+    "iron-ore": {
+      "category": "basic-solid",
+      "minable": {"mining_time": 1, "results": [{"amount": 1, "name": "iron-ore", "type": "item"}]},
+      "name": "iron-ore",
+      "type": "resource"
+    }
+  },
+  "technology": {
+    "automation": {
+      "effects": [{"recipe": "iron-gear-wheel", "type": "unlock-recipe"}],
+      "enabled": true,
+      "name": "automation",
+      "prerequisites": ["starter-tech"],
+      "type": "technology"
+    }
+  }
+}

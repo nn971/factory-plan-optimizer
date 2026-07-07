@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 
@@ -25,3 +26,29 @@ def test_api_does_not_import_optimizer_cli_modules() -> None:
         text = path.read_text(encoding="utf-8")
         for forbidden_import in forbidden:
             assert forbidden_import not in text
+
+
+def test_api_imports_only_extractor_contracts() -> None:
+    api_src = Path(__file__).resolve().parents[1] / "src"
+    offenders: list[str] = []
+
+    for path in api_src.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            imported_modules: list[str] = []
+            if isinstance(node, ast.Import):
+                imported_modules.extend(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                imported_modules.append(node.module)
+
+            offenders.extend(
+                f"{path}: {module}"
+                for module in imported_modules
+                if module == "game_data_extractor"
+                or (
+                    module.startswith("game_data_extractor.")
+                    and not module.startswith("game_data_extractor.data_contracts")
+                )
+            )
+
+    assert offenders == []

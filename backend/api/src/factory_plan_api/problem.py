@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from factory_plan_optimizer.optimizer.models import (
+from game_data_extractor.data_contracts import (
     ExternalSupply,
     FactoryDataPackage,
 )
@@ -13,7 +13,10 @@ if TYPE_CHECKING:
     from factory_plan_optimizer.optimizer.global_recipe_lp import GlobalRecipeLpResult
 
 
-def problem_from_package(package: FactoryDataPackage) -> ProblemDto:
+def problem_from_package(
+    package: FactoryDataPackage,
+    package_id: str | None = None,
+) -> ProblemDto:
     external_inputs = []
     for item in package.items:
         supply = package.external_supplies.get(item.id)
@@ -26,6 +29,7 @@ def problem_from_package(package: FactoryDataPackage) -> ProblemDto:
             ),
         )
     return ProblemDto(
+        package_id=package_id,
         items=[ItemDto(id=item.id, kind=item.kind) for item in package.items],
         demands=dict(package.final_demands),
         external_inputs=external_inputs,

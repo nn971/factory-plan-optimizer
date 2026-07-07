@@ -4,7 +4,7 @@ import json
 from json import JSONDecodeError
 from typing import TYPE_CHECKING
 
-from factory_plan_optimizer.import_models import (
+from game_data_extractor.data_contracts import (
     DatasetParseError,
     ImportDiagnostic,
     ItemPrototype,
@@ -17,7 +17,7 @@ from factory_plan_optimizer.import_models import (
 )
 
 if TYPE_CHECKING:
-    from factory_plan_optimizer.import_types import DiagnosticSeverity, JsonValue
+    from game_data_extractor.data_contracts import DiagnosticSeverity, JsonValue
 
 FACTORIO_TUPLE_MINIMUM_LENGTH = 2
 ITEM_LIKE_PROTOTYPE_TYPES = (

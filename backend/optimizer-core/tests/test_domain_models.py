@@ -1,14 +1,14 @@
 import json
 
 import pytest
-
-from factory_plan_optimizer.import_models import (
+from game_data_extractor.data_contracts import (
     DatasetParseError,
     ItemPrototype,
     OptimizerRecipeDataset,
     RecipeCoefficient,
     RecipePrototype,
 )
+
 from paths import FIXTURES_ROOT
 
 

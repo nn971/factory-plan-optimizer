@@ -3,8 +3,8 @@ import re
 
 import pytest
 
-from factory_plan_optimizer.data_raw_normalization import normalize_data_raw_dump
-from factory_plan_optimizer.import_models import DatasetParseError
+from game_data_extractor.data_contracts import DatasetParseError
+from game_data_extractor.data_raw_normalization import normalize_data_raw_dump
 from paths import FIXTURES_ROOT
 
 FIXTURE_DIR = FIXTURES_ROOT / "data_raw"

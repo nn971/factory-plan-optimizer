@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
     "factory-plan-optimizer",
     "fastapi>=0.116",
+    "game-data-extractor",
     "uvicorn[standard]>=0.35",
 ]
 
@@ -24,6 +25,7 @@ dev = [
 
 [tool.uv.sources]
 factory-plan-optimizer = { workspace = true }
+game-data-extractor = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/factory_plan_api"]

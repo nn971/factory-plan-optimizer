@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from factory_plan_optimizer.import_types import (
+from game_data_extractor.data_contracts.types import (
     CoefficientKind,
     DatasetParseError,
     JsonValue,

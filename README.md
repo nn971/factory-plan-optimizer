@@ -7,12 +7,14 @@ The repository is now split into a small web UI and a Python backend:
 ```text
 frontend/                 Vite + React + TypeScript testing UI
 backend/api/              FastAPI boundary used by the UI
+backend/game-data-extractor/ Factorio data contracts and extraction CLI
 backend/optimizer-core/   Python optimizer package: factory_plan_optimizer
 ```
 
-The frontend talks only to the HTTP API. The optimizer core does not import the
-API or frontend. The API is the integration layer and imports optimizer-core as a
-Python package.
+The frontend talks only to the HTTP API. The API is the integration layer and
+imports optimizer-core plus public data contracts. The optimizer core imports
+only `game_data_extractor.data_contracts` from the extractor package; extractor
+workflow code must not import optimizer-core, Pyomo, or HiGHS.
 
 ## Development setup
 
@@ -27,6 +29,23 @@ uv run python -m ruff check src tests
 uv run python -m ruff format --check src tests
 uv run python -m mypy src
 ```
+
+### Game data extractor
+
+```bash
+cd backend/game-data-extractor
+uv run game-data-extractor --help
+uv run python -m pytest
+uv run python -m ruff check src tests
+uv run python -m ruff format --check src tests
+uv run python -m mypy src
+```
+
+`game-data-extractor` owns importer commands such as `extract-save-settings`,
+`dump-data`, `normalize-dump`, `export-milestone`, `export-factory-data`,
+`report`, and `validate-dataset`. `dump-data` currently supports `--dry-run`;
+non-dry-run returns the structured `factorio_dump_unavailable` error until an
+isolated Factorio settings workflow exists.
 
 ### API server
 

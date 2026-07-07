@@ -21,9 +21,8 @@ from pyomo.environ import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from game_data_extractor.data_contracts import FactoryDataPackage
     from pyomo.core.base.var import VarData
-
-    from factory_plan_optimizer.optimizer.models import FactoryDataPackage
 
 type GlobalRecipeLpStatus = Literal[
     "optimal",

@@ -8,6 +8,7 @@ export type ExternalInputDto = {
 };
 
 export type ProblemDto = {
+  package_id?: string | null;
   items: ItemDto[];
   demands: Record<string, number>;
   external_inputs: ExternalInputDto[];
@@ -15,9 +16,12 @@ export type ProblemDto = {
 };
 
 export type SolveRequestDto = {
+  package_id?: string | null;
   demands: Record<string, number>;
   external_inputs: ExternalInputDto[];
 };
+
+export type PackageProblemDto = { package_id: string; problem: ProblemDto };
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 

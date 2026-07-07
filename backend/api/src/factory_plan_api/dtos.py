@@ -18,13 +18,20 @@ class ExternalInputDto(BaseModel):
 
 
 class ProblemDto(BaseModel):
+    package_id: str | None = None
     items: list[ItemDto]
     demands: dict[str, float] = Field(default_factory=dict)
     external_inputs: list[ExternalInputDto]
     recipe_ids: list[str] = Field(default_factory=list)
 
 
+class ProblemPackageDto(BaseModel):
+    package_id: str
+    problem: ProblemDto
+
+
 class SolveRequestDto(BaseModel):
+    package_id: str | None = None
     demands: dict[str, float] = Field(default_factory=dict)
     external_inputs: list[ExternalInputDto] = Field(default_factory=list)
 

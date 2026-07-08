@@ -13,7 +13,7 @@
     "unmet_demand_penalty_rate"
   ],
   "properties": {
-    "schema_version": {"const": "factory-data-v1"},
+    "schema_version": {"const": "factory-data-v2"},
     "items": {
       "type": "array",
       "minItems": 1,
@@ -52,7 +52,23 @@
     "recipe": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "coefficients", "production_cost"],
+      "required": [
+        "id",
+        "coefficients",
+        "energy_required",
+        "ingredients",
+        "results",
+        "production_cost"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {"source_prototype_type": {"const": "boiler"}},
+            "required": ["source_prototype_type"]
+          },
+          "then": {"required": ["source_prototype_name"]}
+        }
+      ],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
         "coefficients": {
@@ -64,9 +80,43 @@
             "not": {"const": 0}
           }
         },
+        "energy_required": {"type": "number", "exclusiveMinimum": 0},
+        "ingredients": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/recipeTerm"}
+        },
+        "results": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/recipeTerm"}
+        },
         "production_cost": {"type": "number", "minimum": 0},
         "category": {"$ref": "#/$defs/id", "default": "unknown"},
+        "source_prototype_type": {"enum": ["recipe", "boiler"], "default": "recipe"},
+        "source_prototype_name": {"$ref": "#/$defs/id"},
         "unlock_condition": {"$ref": "#/$defs/unlockCondition"}
+      }
+    },
+    "recipeTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "name"],
+      "anyOf": [
+        {"required": ["amount"]},
+        {"required": ["amount_min"]},
+        {"required": ["amount_max"]}
+      ],
+      "properties": {
+        "type": {"enum": ["item", "fluid", "unknown"]},
+        "name": {"$ref": "#/$defs/id"},
+        "amount": {"type": "number", "exclusiveMinimum": 0},
+        "amount_min": {"type": "number", "exclusiveMinimum": 0},
+        "amount_max": {"type": "number", "exclusiveMinimum": 0},
+        "probability": {"type": "number", "minimum": 0, "maximum": 1},
+        "catalyst_amount": {"type": "number", "minimum": 0},
+        "temperature": {"type": "number", "minimum": 0},
+        "minimum_temperature": {"type": "number", "minimum": 0},
+        "maximum_temperature": {"type": "number", "minimum": 0},
+        "fluidbox_index": {"type": "integer", "minimum": 0}
       }
     },
     "unlockCondition": {

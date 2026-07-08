@@ -24,18 +24,36 @@ export type ExplorerItemDto = {
   consumed_by: ExplorerRecipeLinkDto[];
 };
 
+export type RecipeTermDto = {
+  type: 'item' | 'fluid' | 'unknown';
+  name: string;
+  amount: number | null;
+  amount_min: number | null;
+  amount_max: number | null;
+  probability: number | null;
+  catalyst_amount: number | null;
+  temperature: number | null;
+  minimum_temperature: number | null;
+  maximum_temperature: number | null;
+  fluidbox_index: number | null;
+};
+
 export type ExplorerRecipeIODto = {
   item_id: string;
   kind: 'item' | 'fluid' | 'unknown';
   category: string;
   amount: number;
+  terms: RecipeTermDto[];
 };
 
 export type ExplorerRecipeDto = {
   id: string;
   category: string;
   unlock_condition: UnlockConditionDto;
+  energy_required: number;
   production_cost: number;
+  source_prototype_type: 'recipe' | 'boiler';
+  source_prototype_name: string | null;
   inputs: ExplorerRecipeIODto[];
   outputs: ExplorerRecipeIODto[];
 };

@@ -75,18 +75,36 @@ class ExplorerItemDto(BaseModel):
     consumed_by: list[ExplorerRecipeLinkDto]
 
 
+class RecipeTermDto(BaseModel):
+    type: Literal["item", "fluid", "unknown"]
+    name: str
+    amount: float | None = None
+    amount_min: float | None = None
+    amount_max: float | None = None
+    probability: float | None = None
+    catalyst_amount: float | None = None
+    temperature: float | None = None
+    minimum_temperature: float | None = None
+    maximum_temperature: float | None = None
+    fluidbox_index: int | None = None
+
+
 class ExplorerRecipeIODto(BaseModel):
     item_id: str
     kind: Literal["item", "fluid", "unknown"]
     category: str
     amount: float
+    terms: list[RecipeTermDto]
 
 
 class ExplorerRecipeDto(BaseModel):
     id: str
     category: str
     unlock_condition: UnlockConditionDto
+    energy_required: float
     production_cost: float
+    source_prototype_type: Literal["recipe", "boiler"]
+    source_prototype_name: str | None
     inputs: list[ExplorerRecipeIODto]
     outputs: list[ExplorerRecipeIODto]
 

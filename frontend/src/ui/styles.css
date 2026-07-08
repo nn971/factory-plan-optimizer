@@ -133,6 +133,18 @@ button:disabled {
   color: #2e6e49;
 }
 
+.source-pill.boiler {
+  border-color: rgba(153, 92, 24, 0.32);
+  background: #fff0d3;
+  color: #995c18;
+}
+
+.source-pill.recipe-source {
+  border-color: rgba(68, 48, 23, 0.16);
+  background: #f6f8f4;
+  color: #4b5f44;
+}
+
 .tabs {
   display: inline-flex;
   gap: 0.35rem;
@@ -356,8 +368,18 @@ button:disabled {
   justify-content: flex-start;
 }
 
-.production-cost {
+.recipe-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.recipe-facts span {
   margin: 0;
+  border: 1px solid rgba(90, 59, 30, 0.12);
+  border-radius: 999px;
+  padding: 0.4rem 0.7rem;
+  background: #fffdf8;
   color: #5a3b1e;
 }
 
@@ -376,6 +398,25 @@ button:disabled {
 
 .relationship-section h3 {
   margin-bottom: 0.7rem;
+}
+
+.term-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+
+.term-chip {
+  display: inline-flex;
+  width: fit-content;
+  border: 1px solid rgba(90, 59, 30, 0.12);
+  border-radius: 999px;
+  padding: 0.16rem 0.42rem;
+  background: rgba(255, 255, 255, 0.74);
+  color: #5a3b1e;
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
 .panel h2 {

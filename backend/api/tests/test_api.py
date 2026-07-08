@@ -47,13 +47,18 @@ def _curated_default_path() -> Path:
 
 def _water_package(demand: float = 2.0) -> dict[str, Any]:
     return {
-        "schema_version": "factory-data-v1",
+        "schema_version": "factory-data-v2",
         "items": [{"id": "water", "kind": "fluid"}],
         "recipes": [
             {
                 "id": "pump-water",
                 "coefficients": {"water": 1.0},
+                "energy_required": 1.0,
+                "ingredients": [],
+                "results": [{"type": "fluid", "name": "water", "amount": 1.0}],
                 "production_cost": 0.0,
+                "source_prototype_type": "boiler",
+                "source_prototype_name": "offshore-pumpish-boiler",
             },
         ],
         "final_demands": {"water": demand},
@@ -69,6 +74,9 @@ def _unproducible_water_package(demand: float = 2.0) -> dict[str, Any]:
         {
             "id": "filter-water",
             "coefficients": {"stone": -1.0, "water": 1.0},
+            "energy_required": 1.0,
+            "ingredients": [{"type": "item", "name": "stone", "amount": 1.0}],
+            "results": [{"type": "fluid", "name": "water", "amount": 1.0}],
             "production_cost": 0.0,
         },
     ]
@@ -77,7 +85,7 @@ def _unproducible_water_package(demand: float = 2.0) -> dict[str, Any]:
 
 def _coal_and_raw_coal_package() -> dict[str, Any]:
     return {
-        "schema_version": "factory-data-v1",
+        "schema_version": "factory-data-v2",
         "items": [
             {"id": "raw-coal", "kind": "item"},
             {"id": "coal", "kind": "item"},
@@ -87,6 +95,9 @@ def _coal_and_raw_coal_package() -> dict[str, Any]:
             {
                 "id": "make-charcoal",
                 "coefficients": {"coal": -1.0, "charcoal": 1.0},
+                "energy_required": 1.0,
+                "ingredients": [{"type": "item", "name": "coal", "amount": 1.0}],
+                "results": [{"type": "item", "name": "charcoal", "amount": 1.0}],
                 "production_cost": 0.0,
             },
         ],
@@ -174,6 +185,33 @@ def test_uploaded_package_updates_current_explorer_package(
     assert body["package_id"] == uploaded["package_id"]
     assert [item["id"] for item in body["items"]] == ["water"]
     assert [recipe["id"] for recipe in body["recipes"]] == ["pump-water"]
+    recipe = body["recipes"][0]
+    assert recipe["energy_required"] == 1.0
+    assert recipe["source_prototype_type"] == "boiler"
+    assert recipe["source_prototype_name"] == "offshore-pumpish-boiler"
+    assert recipe["outputs"] == [
+        {
+            "item_id": "water",
+            "kind": "fluid",
+            "category": "unknown",
+            "amount": 1.0,
+            "terms": [
+                {
+                    "type": "fluid",
+                    "name": "water",
+                    "amount": 1.0,
+                    "amount_min": None,
+                    "amount_max": None,
+                    "probability": None,
+                    "catalyst_amount": None,
+                    "temperature": None,
+                    "minimum_temperature": None,
+                    "maximum_temperature": None,
+                    "fluidbox_index": None,
+                },
+            ],
+        },
+    ]
 
 
 def test_solve_edits_do_not_mutate_current_explorer_package(
@@ -266,14 +304,17 @@ def test_default_raw_input_candidates_have_sources() -> None:
     }
 
     assert "coal" not in candidates
-    assert {"iron-ore", "copper-ore", "raw-coal"} <= set(candidates)
-    for item_id in ["iron-ore", "copper-ore", "raw-coal"]:
+    assert {"iron-ore", "copper-ore", "stone"} <= set(candidates)
+    for item_id in ["iron-ore", "copper-ore", "stone"]:
         candidate = candidates[item_id]
         assert candidate["source"] == "package_external_supply"
         assert candidate["enabled"] is True
         assert candidate["default_approved"] is True
-        assert candidate["capacity"] == DEFAULT_EXTERNAL_INPUT_CAPACITY
-    if "water" in candidates:
+        assert candidate["capacity"] > 0.0
+    if (
+        "water" in candidates
+        and candidates["water"]["source"] != "package_external_supply"
+    ):
         assert candidates["water"]["cost"] == 0.0
 
 
@@ -281,9 +322,14 @@ def test_default_raw_input_candidates_have_default_caps() -> None:
     body = TestClient(app).get("/api/problem/default").json()
 
     assert body["raw_input_candidates"]
+    implicit_candidates = [
+        candidate
+        for candidate in body["raw_input_candidates"]
+        if candidate["source"] != "package_external_supply"
+    ]
     assert all(
         candidate["capacity"] == DEFAULT_EXTERNAL_INPUT_CAPACITY
-        for candidate in body["raw_input_candidates"]
+        for candidate in implicit_candidates
     )
     assert any(
         candidate["kind"] == "fluid" for candidate in body["raw_input_candidates"]
@@ -614,6 +660,24 @@ def test_default_resolver_falls_back_to_curated_when_generated_missing(
     assert path.as_posix().endswith("data/packages/default.factory-data.json")
 
 
+def test_default_loader_falls_back_when_generated_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_read_text = Path.read_text
+
+    def read_stale_generated(path: Path, encoding: str | None = None) -> str:
+        if path.as_posix().endswith(GENERATED_DEFAULT_RELATIVE_PATH.as_posix()):
+            return '{"schema_version": "factory-data-v1"}'
+        return original_read_text(path, encoding=encoding)
+
+    monkeypatch.delenv(DEFAULT_DATA_PATH_ENV, raising=False)
+    monkeypatch.setattr(Path, "read_text", read_stale_generated)
+
+    package = load_default_factory_data()
+
+    assert package.schema_version == "factory-data-v2"
+
+
 def test_default_resolver_falls_back_to_toy_when_curated_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -641,12 +705,15 @@ def test_default_resolver_uses_env_override(
     package_path.write_text(
         """
         {
-          "schema_version": "factory-data-v1",
+          "schema_version": "factory-data-v2",
           "items": [{"id": "water", "kind": "fluid"}],
           "recipes": [
             {
               "id": "vent-water",
               "coefficients": {"water": 1.0},
+              "energy_required": 1.0,
+              "ingredients": [],
+              "results": [{"type": "fluid", "name": "water", "amount": 1.0}],
               "production_cost": 0.0
             }
           ],

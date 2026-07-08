@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from factory_plan_api.dtos import (
     ExplorerItemDto,
@@ -9,11 +9,19 @@ from factory_plan_api.dtos import (
     ExplorerRecipeIODto,
     ExplorerRecipeLinkDto,
     ExplorerResponseDto,
+    RecipeTermDto,
     UnlockConditionDto,
 )
 
 if TYPE_CHECKING:
-    from game_data_extractor.data_contracts import FactoryDataPackage, Item, Recipe
+    from game_data_extractor.data_contracts import (
+        FactoryDataPackage,
+        Item,
+        Recipe,
+        RecipeTerm,
+    )
+
+RecipeTermType = Literal["item", "fluid", "unknown"]
 
 
 def explorer_from_package(
@@ -48,7 +56,10 @@ def explorer_from_package(
             id=recipe.id,
             category=recipe.category,
             unlock_condition=_unlock_condition_dto(recipe),
+            energy_required=recipe.energy_required,
             production_cost=recipe.production_cost,
+            source_prototype_type=recipe.source_prototype_type,
+            source_prototype_name=recipe.source_prototype_name,
             inputs=_recipe_io(recipe, item_by_id, sign=-1),
             outputs=_recipe_io(recipe, item_by_id, sign=1),
         )
@@ -86,20 +97,53 @@ def _recipe_io(
     *,
     sign: int,
 ) -> list[ExplorerRecipeIODto]:
-    rows: list[ExplorerRecipeIODto] = []
+    side_terms = recipe.ingredients if sign < 0 else recipe.results
+    terms_by_row: dict[tuple[str, RecipeTermType], list[RecipeTerm]] = {}
+    for term in side_terms:
+        terms_by_row.setdefault((term.name, term.type), []).append(term)
+
+    row_keys: set[tuple[str, RecipeTermType]] = set()
+    coefficient_amounts: dict[tuple[str, RecipeTermType], float] = {}
     for item_id, coefficient in recipe.coefficients.items():
-        if coefficient * sign <= 0.0:
-            continue
+        if coefficient * sign > 0.0:
+            item = item_by_id[item_id]
+            row_key = (item_id, item.kind)
+            row_keys.add(row_key)
+            coefficient_amounts[row_key] = abs(coefficient)
+    row_keys.update(terms_by_row)
+
+    rows: list[ExplorerRecipeIODto] = []
+    for item_id, kind in row_keys:
         item = item_by_id[item_id]
         rows.append(
             ExplorerRecipeIODto(
                 item_id=item.id,
-                kind=item.kind,
+                kind=kind,
                 category=item.category,
-                amount=abs(coefficient),
+                amount=coefficient_amounts.get((item_id, kind), 0.0),
+                terms=[
+                    _recipe_term_dto(term)
+                    for term in terms_by_row.get((item_id, kind), [])
+                ],
             ),
         )
-    return sorted(rows, key=lambda row: (row.category, row.item_id))
+    return sorted(rows, key=lambda row: (row.category, row.item_id, row.kind))
+
+
+def _recipe_term_dto(term: RecipeTerm) -> RecipeTermDto:
+    return RecipeTermDto(
+        type=term.type,
+        name=term.name,
+        amount=term.amount,
+        amount_min=term.amount_min,
+        amount_max=term.amount_max,
+        probability=term.probability,
+        catalyst_amount=term.catalyst_amount,
+        temperature=term.temperature,
+        minimum_temperature=term.minimum_temperature,
+        maximum_temperature=term.maximum_temperature,
+        fluidbox_index=term.fluidbox_index,
+    )
 
 
 def _category_id_key(item_or_recipe: Item | Recipe) -> tuple[str, str]:

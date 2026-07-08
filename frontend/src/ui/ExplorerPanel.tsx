@@ -7,6 +7,7 @@ import type {
   ExplorerRecipeIODto,
   ExplorerRecipeLinkDto,
   ExplorerResponseDto,
+  RecipeTermDto,
   UnlockConditionDto,
 } from '../api/dtos';
 import {
@@ -260,8 +261,17 @@ function ItemDetail({ item, onSelectRecipe }: { item: ExplorerItemDto; onSelectR
 function RecipeDetail({ recipe, onSelectItem }: { recipe: ExplorerRecipeDto; onSelectItem: (id: string) => void }) {
   return (
     <article className="detail-card">
-      <DetailHeading eyebrow="recipe" title={recipe.id} category={recipe.category} unlock={recipe.unlock_condition} />
-      <p className="production-cost">Production cost: <strong>{formatNumber(recipe.production_cost)}</strong></p>
+      <DetailHeading
+        eyebrow="recipe"
+        title={recipe.id}
+        category={recipe.category}
+        unlock={recipe.unlock_condition}
+        extraBadges={<SourceBadge recipe={recipe} />}
+      />
+      <div className="recipe-facts">
+        <span>Production time <strong>{formatNumber(recipe.energy_required)}s</strong></span>
+        <span>Production cost <strong>{formatNumber(recipe.production_cost)}</strong></span>
+      </div>
       <div className="detail-grid">
         <IOSection title="Inputs" rows={recipe.inputs} onSelect={onSelectItem} empty="No inputs listed." />
         <IOSection title="Outputs" rows={recipe.outputs} onSelect={onSelectItem} empty="No outputs listed." />
@@ -270,7 +280,19 @@ function RecipeDetail({ recipe, onSelectItem }: { recipe: ExplorerRecipeDto; onS
   );
 }
 
-function DetailHeading({ eyebrow, title, category, unlock }: { eyebrow: string; title: string; category: string; unlock: UnlockConditionDto }) {
+function DetailHeading({
+  eyebrow,
+  title,
+  category,
+  unlock,
+  extraBadges,
+}: {
+  eyebrow: string;
+  title: string;
+  category: string;
+  unlock: UnlockConditionDto;
+  extraBadges?: ReactNode;
+}) {
   return (
     <header className="detail-heading">
       <p className="eyebrow">{eyebrow}</p>
@@ -278,6 +300,7 @@ function DetailHeading({ eyebrow, title, category, unlock }: { eyebrow: string; 
       <div className="detail-badges">
         <span className={`source-pill ${category === 'unknown' ? 'unknown' : ''}`}>category {category}</span>
         <UnlockBadge unlock={unlock} />
+        {extraBadges}
       </div>
     </header>
   );
@@ -310,10 +333,11 @@ function IOSection({ title, rows, onSelect, empty }: { title: string; rows: Expl
       {rows.length ? (
         <div className="link-stack">
           {rows.map((row) => (
-            <button type="button" className="io-link" key={row.item_id} onClick={() => onSelect(row.item_id)}>
+            <button type="button" className="io-link" key={`${row.item_id}-${row.kind}`} onClick={() => onSelect(row.item_id)}>
               <span>
                 <strong>{row.item_id}</strong>
                 <small>{row.category} · {row.kind}</small>
+                <TermSummaries terms={row.terms} />
               </span>
               <em>{formatNumber(row.amount)}</em>
             </button>
@@ -324,6 +348,42 @@ function IOSection({ title, rows, onSelect, empty }: { title: string; rows: Expl
       )}
     </section>
   );
+}
+
+function SourceBadge({ recipe }: { recipe: ExplorerRecipeDto }) {
+  if (recipe.source_prototype_type === 'boiler') {
+    return <span className="source-pill boiler">boiler transform {recipe.source_prototype_name}</span>;
+  }
+  return <span className="source-pill recipe-source">normal recipe {recipe.source_prototype_name ?? recipe.id}</span>;
+}
+
+function TermSummaries({ terms }: { terms: RecipeTermDto[] }) {
+  if (!terms.length) return null;
+  return (
+    <span className="term-stack">
+      {terms.map((term, index) => (
+        <span className="term-chip" key={`${term.name}-${term.type}-${index}`}>
+          {termLabel(term, index, terms.length)}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function termLabel(term: RecipeTermDto, index: number, termCount: number): string {
+  const parts: string[] = [];
+  if (termCount > 1) parts.push(`term ${index + 1}`);
+  if (term.amount != null) parts.push(`amount ${formatNumber(term.amount)}`);
+  if (term.amount_min != null || term.amount_max != null) {
+    parts.push(`range ${formatOptionalNumber(term.amount_min)}–${formatOptionalNumber(term.amount_max)}`);
+  }
+  if (term.probability != null) parts.push(`prob ${formatNumber(term.probability)}`);
+  if (term.catalyst_amount != null) parts.push(`catalyst ${formatNumber(term.catalyst_amount)}`);
+  if (term.temperature != null) parts.push(`temp ${formatNumber(term.temperature)}°`);
+  if (term.minimum_temperature != null) parts.push(`min temp ${formatNumber(term.minimum_temperature)}°`);
+  if (term.maximum_temperature != null) parts.push(`max temp ${formatNumber(term.maximum_temperature)}°`);
+  if (term.fluidbox_index != null) parts.push(`box ${term.fluidbox_index}`);
+  return parts.length ? parts.join(' · ') : `term ${index + 1}`;
 }
 
 function UnlockBadge({ unlock }: { unlock: UnlockConditionDto }) {
@@ -347,4 +407,8 @@ function Stat({ label, value }: { label: string; value: number }) {
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toPrecision(8);
+}
+
+function formatOptionalNumber(value: number | null) {
+  return value == null ? '?' : formatNumber(value);
 }

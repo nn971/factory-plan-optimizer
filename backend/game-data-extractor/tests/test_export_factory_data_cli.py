@@ -54,7 +54,7 @@ def test_export_factory_data_cli_writes_canonical_package(
     assert status == 0
     assert "exported factory data" in capsys.readouterr().out
     package = json.loads(output_path.read_text(encoding="utf-8"))
-    assert package["schema_version"] == "factory-data-v1"
+    assert package["schema_version"] == "factory-data-v2"
     assert package["final_demands"] == {"iron-plate": 2.0}
     assert package["external_supplies"] == {"iron-ore": {"capacity": None, "cost": 1.0}}
     assert package["recipes"][0]["id"] == "iron-smelting"

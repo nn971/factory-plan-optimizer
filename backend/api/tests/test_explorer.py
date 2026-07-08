@@ -4,6 +4,7 @@ from game_data_extractor.data_contracts import (
     FactoryDataPackage,
     Item,
     Recipe,
+    RecipeTerm,
     UnlockCondition,
 )
 
@@ -12,11 +13,17 @@ from factory_plan_api.explorer import explorer_from_package
 ITEM_COUNT = 3
 FLUID_COUNT = 1
 RECIPE_COUNT = 2
+OUTPUT_TERM_COUNT = 2
+OUTPUT_AMOUNT_MAX = 2.0
+MINIMUM_TEMPERATURE = 15.0
+MAXIMUM_TEMPERATURE = 100.0
+PROBABILITY = 0.5
+OUTPUT_TEMPERATURE = 165.0
 
 
 def test_explorer_mapper_derives_relationships_io_and_sorting() -> None:
     package = FactoryDataPackage(
-        schema_version="factory-data-v1",
+        schema_version="factory-data-v2",
         items=[
             Item(id="z-output", kind="item", category="b"),
             Item(id="a-input", kind="item", category="a"),
@@ -31,15 +38,44 @@ def test_explorer_mapper_derives_relationships_io_and_sorting() -> None:
             Recipe(
                 id="z-consume",
                 coefficients={"z-output": -2.0},
+                energy_required=1.0,
+                ingredients=[RecipeTerm(type="item", name="z-output", amount=2.0)],
+                results=[],
                 production_cost=3.0,
                 category="b",
             ),
             Recipe(
                 id="a-make",
                 coefficients={"a-input": -1.5, "fluid-input": -0.5, "z-output": 2.0},
+                energy_required=1.0,
+                ingredients=[
+                    RecipeTerm(type="item", name="a-input", amount=1.5),
+                    RecipeTerm(
+                        type="fluid",
+                        name="fluid-input",
+                        amount=0.5,
+                        minimum_temperature=MINIMUM_TEMPERATURE,
+                        maximum_temperature=MAXIMUM_TEMPERATURE,
+                        fluidbox_index=1,
+                    ),
+                ],
+                results=[
+                    RecipeTerm(type="item", name="z-output", amount=1.0),
+                    RecipeTerm(
+                        type="item",
+                        name="z-output",
+                        amount_min=1.0,
+                        amount_max=OUTPUT_AMOUNT_MAX,
+                        probability=PROBABILITY,
+                        catalyst_amount=0.0,
+                        temperature=OUTPUT_TEMPERATURE,
+                    ),
+                ],
                 production_cost=1.0,
                 category="a",
                 unlock_condition=UnlockCondition(type="technology", id="tech-a"),
+                source_prototype_type="boiler",
+                source_prototype_name="test-boiler",
             ),
         ],
         final_demands={},
@@ -70,8 +106,24 @@ def test_explorer_mapper_derives_relationships_io_and_sorting() -> None:
     make = explorer.recipes[0]
     assert make.unlock_condition.type == "technology"
     assert make.unlock_condition.id == "tech-a"
+    assert make.energy_required == 1.0
+    assert make.source_prototype_type == "boiler"
+    assert make.source_prototype_name == "test-boiler"
     assert [(row.item_id, row.amount) for row in make.inputs] == [
         ("a-input", 1.5),
         ("fluid-input", 0.5),
     ]
     assert [(row.item_id, row.amount) for row in make.outputs] == [("z-output", 2.0)]
+    fluid_input = make.inputs[1]
+    assert len(fluid_input.terms) == 1
+    assert fluid_input.terms[0].minimum_temperature == MINIMUM_TEMPERATURE
+    assert fluid_input.terms[0].maximum_temperature == MAXIMUM_TEMPERATURE
+    assert fluid_input.terms[0].fluidbox_index == 1
+    output_terms = make.outputs[0].terms
+    assert len(output_terms) == OUTPUT_TERM_COUNT
+    assert output_terms[0].amount == 1.0
+    assert output_terms[1].amount_min == 1.0
+    assert output_terms[1].amount_max == OUTPUT_AMOUNT_MAX
+    assert output_terms[1].probability == PROBABILITY
+    assert output_terms[1].catalyst_amount == 0.0
+    assert output_terms[1].temperature == OUTPUT_TEMPERATURE

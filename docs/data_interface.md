@@ -10,7 +10,7 @@ consume only this package shape.
 
 ```json
 {
-  "schema_version": "factory-data-v1",
+  "schema_version": "factory-data-v2",
   "items": [
     {
       "id": "iron-ore",
@@ -23,8 +23,13 @@ consume only this package shape.
     {
       "id": "smelt-iron-plate",
       "coefficients": {"iron-ore": -1.0, "iron-plate": 1.0},
+      "energy_required": 3.2,
+      "ingredients": [{"type": "item", "name": "iron-ore", "amount": 1.0}],
+      "results": [{"type": "item", "name": "iron-plate", "amount": 1.0}],
       "production_cost": 0.0,
       "category": "smelting",
+      "source_prototype_type": "recipe",
+      "source_prototype_name": "smelt-iron-plate",
       "unlock_condition": {"type": "start-unlocked", "id": null}
     }
   ],
@@ -48,8 +53,8 @@ The first canonical example package is
   their collection.
 - Items represent both solid items and fluids. `kind` is one of `item`, `fluid`,
   or `unknown`. It is optional; the loader defaults omitted `kind` to `unknown`.
-- Items and recipes may include additive v1 metadata fields while keeping the
-  array-based wire shape and `factory-data-v1` schema version. `category` is an
+- The canonical schema version is `factory-data-v2`; legacy v1 packages are
+  rejected as unsupported. `category` is an
   optional non-empty string with no whitespace and defaults to `unknown`.
 - `unlock_condition` is optional and defaults to `{"type": "unknown", "id": null}`.
   Allowed types are `technology`, `start-unlocked`, and `unknown`. Technology
@@ -69,8 +74,37 @@ Each recipe has a `coefficients` object mapping `item_id` to signed `a_ir`:
 - `a_ir < 0`: recipe `r` consumes item `i`.
 - zero coefficients are rejected by the loader and should be omitted.
 
+`energy_required` is required and must be a positive finite number. It is
+craft/process time metadata in seconds, matching Factorio recipe prototype
+language. The initial global LP does not yet use `energy_required`; future machine
+count or throughput models are expected to use it.
+
+`ingredients` and `results` are required arrays of object terms preserving the
+source recipe shape; the loader never derives them from `coefficients`. Term
+quantities use at least one of `amount`, `amount_min`, or `amount_max`, each
+positive when present; `probability` is in `[0, 1]`; catalyst amounts,
+temperatures, and `fluidbox_index` are nonnegative. Term `type` is `item`,
+`fluid`, or `unknown`; item/fluid terms must match the referenced item kind,
+while unknown terms may reference any known item ID.
+
+`source_prototype_type` is `recipe` (default) or `boiler`. `source_prototype_name`
+defaults to the recipe ID for recipe sources; boiler sources require an explicit
+non-empty no-whitespace source name.
+
 `production_cost` is the per-unit cost of `x_r` and contributes to the
-`production_cost` objective component. It is required in v1.
+`production_cost` objective component.
+
+Importer-generated boiler transforms are intentionally narrow: only `boiler`
+prototypes with input/output fluid-box filters are normalized into recipe-like
+processes. IDs include the boiler and fluid names (for example,
+`boiler-boiler-water-to-steam`) so multiple boilers producing the same fluid pair
+do not collide. The transform uses a 1:1 fluid coefficient (`water: -1`,
+`steam: 1`) and preserves boiler output `target_temperature` as result term
+temperature metadata when present. Because current raw normalization does not yet
+model heat capacity, fuel, or burner energy, boiler `energy_required` is a
+positive `1.0` second approximation and adapter output sets
+`production_cost: 0.0`; solver-visible fuel/energy cost is therefore omitted
+until future energy constraints or explicit costs are added.
 
 ## Demands, external supplies, and penalties
 
@@ -108,6 +142,8 @@ The loader rejects packages when:
 - `schema_version` is unsupported.
 - item IDs or recipe IDs are duplicated.
 - any recipe coefficient references an unknown item ID.
+- any recipe term references an unknown item ID or an item/fluid kind mismatch.
+- any recipe omits positive `energy_required` or required term arrays.
 - any final demand or external supply references an unknown item ID.
 - numeric rates, costs, capacities, or penalties are negative where nonnegative
   values are required.
@@ -140,7 +176,15 @@ adapter should map it into `FactoryDataPackage` as follows:
   `unknown`.
 - `RecipePrototype.name` -> `recipes[].id`.
 - `RecipePrototype.category` -> `recipes[].category`.
+- `RecipePrototype.energy_required` -> `recipes[].energy_required`.
 - signed `RecipeCoefficient.amount` -> `recipes[].coefficients[item_id]`.
+- Recipe `ingredients` and `results` preserve raw term metadata where available,
+  including fluid temperature constraints.
+- Normal recipe sources use `source_prototype_type: "recipe"` and default
+  `source_prototype_name` to the recipe ID.
+- Boiler-derived synthetic recipes use `source_prototype_type: "boiler"`, carry
+  the boiler prototype name, and currently omit fuel/energy cost via
+  `production_cost: 0.0`.
 - `RecipePrototype.enabled` -> `recipes[].unlock_condition` of `start-unlocked`.
 - `TechnologyPrototype.unlocks` -> recipe `technology` unlock conditions; if
   multiple technologies unlock one recipe, the adapter chooses the sorted first
@@ -152,7 +196,7 @@ adapter should map it into `FactoryDataPackage` as follows:
 - recipe policy or defaults -> `production_cost` and
   `unmet_demand_penalty_rate`.
 
-## v1 limitations
+## v2 limitations
 
 - No process graph, cluster, port, or flow data is included yet.
 - No integer variables, machine counts, modules, beacons, quality, spoilage, or

@@ -7,6 +7,7 @@ from game_data_extractor.data_contracts import (
     FactoryDataPackage,
     Item,
     Recipe,
+    RecipeTerm,
 )
 
 from factory_plan_optimizer.optimizer import (
@@ -32,6 +33,9 @@ def _package(
             Recipe(
                 id="smelt-iron",
                 coefficients={"iron-ore": -1.0, "iron-plate": 1.0},
+                energy_required=3.2,
+                ingredients=(RecipeTerm(type="unknown", name="iron-ore", amount=1.0),),
+                results=(RecipeTerm(type="unknown", name="iron-plate", amount=1.0),),
                 production_cost=0.5,
             ),
         ),
@@ -91,6 +95,9 @@ def test_soft_diagnostics_reports_unmet_demand_without_supply() -> None:
                 Recipe(
                     id="irrelevant",
                     coefficients={"iron-ore": 1.0},
+                    energy_required=1.0,
+                    ingredients=(),
+                    results=(RecipeTerm(type="unknown", name="iron-ore", amount=1.0),),
                     production_cost=0.0,
                 ),
             ),

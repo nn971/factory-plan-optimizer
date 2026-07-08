@@ -11,6 +11,7 @@ from game_data_extractor.data_contracts import (
 )
 
 type PackageJson = dict[str, object]
+ENERGY_REQUIRED = 3.2
 
 
 def _minimal_package() -> PackageJson:
@@ -21,6 +22,9 @@ def _minimal_package() -> PackageJson:
             {
                 "id": "smelt-iron",
                 "coefficients": {"iron-ore": -1.0, "iron-plate": 1.0},
+                "energy_required": ENERGY_REQUIRED,
+                "ingredients": [{"type": "unknown", "name": "iron-ore", "amount": 1.0}],
+                "results": [{"type": "item", "name": "iron-plate", "amount": 1.0}],
                 "production_cost": 0.5,
             },
         ],
@@ -40,6 +44,11 @@ def _first_recipe(data: PackageJson) -> dict[str, object]:
 
 def _coefficients(data: PackageJson) -> dict[str, object]:
     return cast("dict[str, object]", _first_recipe(data)["coefficients"])
+
+
+def _first_ingredient(data: PackageJson) -> dict[str, object]:
+    ingredients = cast("list[object]", _first_recipe(data)["ingredients"])
+    return cast("dict[str, object]", ingredients[0])
 
 
 def _final_demands(data: PackageJson) -> dict[str, object]:
@@ -74,6 +83,9 @@ def test_loads_minimal_package_with_kind_default_and_immutable_structures() -> N
         "iron-plate": 1.0,
     }
     assert package.external_supplies["iron-ore"].capacity is None
+    assert package.recipes[0].energy_required == ENERGY_REQUIRED
+    assert package.recipes[0].source_prototype_type == "recipe"
+    assert package.recipes[0].source_prototype_name == "smelt-iron"
 
 
 def test_loads_valid_category_and_unlock_metadata() -> None:
@@ -178,6 +190,67 @@ def test_rejects_unsupported_schema_version() -> None:
         match="unsupported schema version",
     ):
         _load(data)
+
+
+def test_rejects_legacy_v1_schema_version() -> None:
+    data = _minimal_package()
+    data["schema_version"] = "factory-data-v1"
+
+    with pytest.raises(
+        FactoryDataPackageParseError,
+        match="unsupported schema version",
+    ):
+        _load(data)
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda data: _first_recipe(data).__delitem__("energy_required"),
+        lambda data: _first_recipe(data).__setitem__("energy_required", 0.0),
+        lambda data: _first_recipe(data).__delitem__("ingredients"),
+        lambda data: _first_ingredient(data).__delitem__("amount"),
+        lambda data: _first_ingredient(data).__setitem__("amount", -1.0),
+        lambda data: _first_ingredient(data).__setitem__("probability", 1.1),
+        lambda data: _first_ingredient(data).__setitem__("catalyst_amount", -1.0),
+        lambda data: _first_ingredient(data).__setitem__("temperature", float("inf")),
+        lambda data: _first_ingredient(data).__setitem__("fluidbox_index", -1),
+        lambda data: _first_ingredient(data).__setitem__("name", "copper"),
+        lambda data: _first_ingredient(data).__setitem__("type", "fluid"),
+        lambda data: _first_recipe(data).__setitem__("source_prototype_type", "boiler"),
+    ],
+)
+def test_rejects_invalid_v2_recipe_fields(
+    mutator: Callable[[PackageJson], None],
+) -> None:
+    data = _minimal_package()
+    mutator(data)
+
+    with pytest.raises(FactoryDataPackageParseError):
+        _load(data)
+
+
+def test_accepts_boiler_source_with_explicit_name_and_range_term() -> None:
+    data = _minimal_package()
+    recipe = _first_recipe(data)
+    recipe["source_prototype_type"] = "boiler"
+    recipe["source_prototype_name"] = "burner-boiler"
+    recipe["results"] = [
+        {
+            "type": "item",
+            "name": "iron-plate",
+            "amount_min": 1.0,
+            "amount_max": 2.0,
+            "probability": 0.5,
+            "catalyst_amount": 0.0,
+            "fluidbox_index": 0,
+        }
+    ]
+
+    package = _load(data)
+
+    assert package.recipes[0].source_prototype_type == "boiler"
+    assert package.recipes[0].source_prototype_name == "burner-boiler"
 
 
 @pytest.mark.parametrize(

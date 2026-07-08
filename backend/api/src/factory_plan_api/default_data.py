@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from game_data_extractor.data_contracts import (
+    FactoryDataPackageParseError,
     load_factory_data_package,
 )
 
@@ -37,40 +37,29 @@ def default_data_path() -> Path:
 def load_default_factory_data() -> FactoryDataPackage:
     """Load the API default factory data package independent of process CWD."""
     path = default_data_path()
-    text = path.read_text(encoding="utf-8")
+    if os.environ.get(DEFAULT_DATA_PATH_ENV):
+        return _load_factory_data_path(path)
     if _is_generated_default_path(path):
-        text = _deduplicate_generated_parameter_items(text)
-    return load_factory_data_package(text)
+        try:
+            return _load_factory_data_path(path)
+        except FactoryDataPackageParseError:
+            # Generated defaults are ignored locally and may be stale across schema
+            # changes. Fall back to versioned curated/example defaults for tests and
+            # dev startup; explicit env overrides still raise parse errors above.
+            repository_root = Path(__file__).resolve().parents[4]
+            for fallback in (
+                repository_root / CURATED_DEFAULT_RELATIVE_PATH,
+                repository_root / "examples" / "data" / "toy_iron.factory-data.json",
+            ):
+                if fallback.exists():
+                    return _load_factory_data_path(fallback)
+            raise
+    return _load_factory_data_path(path)
+
+
+def _load_factory_data_path(path: Path) -> FactoryDataPackage:
+    return load_factory_data_package(path.read_text(encoding="utf-8"))
 
 
 def _is_generated_default_path(path: Path) -> bool:
     return path.as_posix().endswith(GENERATED_DEFAULT_RELATIVE_PATH.as_posix())
-
-
-def _deduplicate_generated_parameter_items(text: str) -> str:
-    """Temporarily tolerate duplicate generated parameter pseudo-items.
-
-    The current generated real-game package contains duplicate `parameter-*` item
-    IDs with both item/fluid kinds. Keep the first occurrence so the canonical
-    loader can read the package without changing normal package validation.
-    """
-    package = json.loads(text)
-    items = package.get("items")
-    if not isinstance(items, list):
-        return text
-    seen: set[str] = set()
-    deduplicated: list[object] = []
-    for item in items:
-        if not isinstance(item, dict):
-            deduplicated.append(item)
-            continue
-        item_id = item.get("id")
-        if not isinstance(item_id, str):
-            deduplicated.append(item)
-            continue
-        if item_id in seen and item_id.startswith("parameter-"):
-            continue
-        seen.add(item_id)
-        deduplicated.append(item)
-    package["items"] = deduplicated
-    return json.dumps(package)

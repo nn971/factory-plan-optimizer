@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 from json import JSONDecodeError
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from game_data_extractor.data_contracts import (
     DatasetParseError,
     ImportDiagnostic,
     ItemPrototype,
     OptimizerRecipeDataset,
+    RawRecipeTerm,
     RecipeCoefficient,
     RecipePrototype,
     RecipeUnlock,
@@ -17,7 +18,11 @@ from game_data_extractor.data_contracts import (
 )
 
 if TYPE_CHECKING:
-    from game_data_extractor.data_contracts import DiagnosticSeverity, JsonValue
+    from game_data_extractor.data_contracts import (
+        DiagnosticSeverity,
+        JsonValue,
+        RawRecipeTermType,
+    )
 
 FACTORIO_TUPLE_MINIMUM_LENGTH = 2
 ITEM_LIKE_PROTOTYPE_TYPES = (
@@ -56,6 +61,7 @@ def normalize_data_raw_dump(text: str) -> OptimizerRecipeDataset:
     items = _parse_items(data_raw, diagnostics)
     known_items = {item.name for item in items}
     recipes = _parse_recipes(data_raw, known_items, diagnostics)
+    recipes.extend(_parse_boiler_transforms(data_raw, known_items, diagnostics))
     technologies = _parse_technologies(data_raw, diagnostics)
     sources = _parse_resources(data_raw, known_items, diagnostics)
 
@@ -114,6 +120,10 @@ def _parse_recipes(
             coefficients = _recipe_coefficients(
                 body, recipe_name, known_items, diagnostics
             )
+            ingredients = _products(
+                body.get("ingredients", []), f"recipe {recipe_name} ingredients"
+            )
+            results = _recipe_results(body, recipe_name)
             enabled = _bool(body, "enabled", default=True)
             hidden = _bool(body, "hidden", default=False)
             if hidden:
@@ -141,6 +151,8 @@ def _parse_recipes(
                         default=0.5,
                     ),
                     coefficients=coefficients,
+                    ingredients=ingredients,
+                    results=results,
                     enabled=enabled,
                     hidden=hidden,
                 ),
@@ -150,6 +162,69 @@ def _parse_recipes(
                 _diagnostic("error", "malformed-prototype", str(error), name)
             )
     return recipes
+
+
+def _parse_boiler_transforms(
+    data_raw: dict[str, JsonValue],
+    known_items: set[str],
+    diagnostics: list[ImportDiagnostic],
+) -> list[RecipePrototype]:
+    recipes: list[RecipePrototype] = []
+    for name, value in sorted(_section(data_raw, "boiler").items()):
+        try:
+            prototype = _mapping(value, f"data.raw boiler {name}")
+            boiler_name = _string(prototype, "name", default=name)
+            input_fluid = _fluid_box_filter(prototype, "fluid_box")
+            output_fluid = _fluid_box_filter(prototype, "output_fluid_box")
+            target_temperature = _optional_number(prototype, "target_temperature")
+            recipe_name = f"boiler-{boiler_name}-{input_fluid}-to-{output_fluid}"
+            amount = 1.0
+            ingredients = [RawRecipeTerm(type="fluid", name=input_fluid, amount=amount)]
+            results = [
+                RawRecipeTerm(
+                    type="fluid",
+                    name=output_fluid,
+                    amount=amount,
+                    temperature=target_temperature,
+                )
+            ]
+            _diagnose_unknown(input_fluid, known_items, diagnostics)
+            _diagnose_unknown(output_fluid, known_items, diagnostics)
+            recipes.append(
+                RecipePrototype(
+                    name=recipe_name,
+                    category="boiling",
+                    energy_required=1.0,
+                    coefficients=(
+                        RecipeCoefficient(
+                            item_name=input_fluid,
+                            amount=-amount,
+                            coefficient_kind="input",
+                        ),
+                        RecipeCoefficient(
+                            item_name=output_fluid,
+                            amount=amount,
+                            coefficient_kind="output",
+                        ),
+                    ),
+                    ingredients=ingredients,
+                    results=results,
+                    enabled=True,
+                    hidden=False,
+                    source_prototype_type="boiler",
+                    source_prototype_name=boiler_name,
+                )
+            )
+        except DatasetParseError as error:
+            diagnostics.append(
+                _diagnostic("error", "malformed-prototype", str(error), name)
+            )
+    return recipes
+
+
+def _fluid_box_filter(prototype: dict[str, JsonValue], key: str) -> str:
+    fluid_box = _mapping(prototype.get(key, {}), f"boiler {key}")
+    return _string(fluid_box, "filter")
 
 
 def _recipe_body(
@@ -181,9 +256,11 @@ def _recipe_coefficients(
     diagnostics: list[ImportDiagnostic],
 ) -> list[RecipeCoefficient]:
     coefficients: list[RecipeCoefficient] = []
-    for item_name, amount in _products(
+    for term in _products(
         body.get("ingredients", []), f"recipe {recipe_name} ingredients"
     ):
+        item_name = term.name
+        amount = _coefficient_amount(term)
         _diagnose_unknown(item_name, known_items, diagnostics)
         coefficients.append(
             RecipeCoefficient(
@@ -194,10 +271,10 @@ def _recipe_coefficients(
     if outputs is not None:
         products = _products(outputs, f"recipe {recipe_name} results")
     else:
-        products = [
-            (_string(body, "result"), _number(body, "result_count", default=1.0))
-        ]
-    for item_name, amount in products:
+        products = _recipe_results(body, recipe_name)
+    for term in products:
+        item_name = term.name
+        amount = _coefficient_amount(term)
         _diagnose_unknown(item_name, known_items, diagnostics)
         coefficients.append(
             RecipeCoefficient(
@@ -261,14 +338,17 @@ def _parse_resources(
                 _products(minable["results"], f"resource {name} results")
                 if "results" in minable
                 else [
-                    (
-                        _string(minable, "result"),
-                        _number(minable, "count", default=1.0),
+                    RawRecipeTerm(
+                        type="unknown",
+                        name=_string(minable, "result"),
+                        amount=_number(minable, "count", default=1.0),
                     )
                 ]
             )
             source_count = len(products)
-            for item_name, amount in products:
+            for term in products:
+                item_name = term.name
+                amount = _coefficient_amount(term)
                 _diagnose_unknown(item_name, known_items, diagnostics)
                 source_name = name if source_count == 1 else f"{name}:{item_name}"
                 sources.append(
@@ -286,8 +366,23 @@ def _parse_resources(
     return sources
 
 
-def _products(value: JsonValue, context: str) -> list[tuple[str, float]]:
-    products: list[tuple[str, float]] = []
+def _recipe_results(
+    body: dict[str, JsonValue], recipe_name: str
+) -> list[RawRecipeTerm]:
+    outputs = body.get("results")
+    if outputs is not None:
+        return _products(outputs, f"recipe {recipe_name} results")
+    return [
+        RawRecipeTerm(
+            type="unknown",
+            name=_string(body, "result"),
+            amount=_number(body, "result_count", default=1.0),
+        )
+    ]
+
+
+def _products(value: JsonValue, context: str) -> list[RawRecipeTerm]:
+    products: list[RawRecipeTerm] = []
     for entry in _list(value, context):
         if (
             isinstance(entry, list)
@@ -296,22 +391,47 @@ def _products(value: JsonValue, context: str) -> list[tuple[str, float]]:
         ):
             amount = entry[1]
             if isinstance(amount, int | float) and not isinstance(amount, bool):
-                products.append((entry[0], float(amount)))
+                products.append(
+                    RawRecipeTerm(type="unknown", name=entry[0], amount=float(amount))
+                )
                 continue
         if isinstance(entry, dict):
             products.append(
-                (
-                    _string(entry, "name"),
-                    _number(
-                        entry,
-                        "amount",
-                        default=_number(entry, "amount_min", default=1.0),
-                    ),
+                RawRecipeTerm(
+                    type=_term_type(entry),
+                    name=_string(entry, "name"),
+                    amount=_optional_number(entry, "amount"),
+                    amount_min=_optional_number(entry, "amount_min"),
+                    amount_max=_optional_number(entry, "amount_max"),
+                    probability=_optional_number(entry, "probability"),
+                    catalyst_amount=_optional_number(entry, "catalyst_amount"),
+                    temperature=_optional_number(entry, "temperature"),
+                    minimum_temperature=_optional_number(entry, "minimum_temperature"),
+                    maximum_temperature=_optional_number(entry, "maximum_temperature"),
+                    fluidbox_index=_optional_int(entry, "fluidbox_index"),
                 )
             )
             continue
         raise DatasetParseError(context, "expected product array or object")
     return products
+
+
+def _coefficient_amount(term: RawRecipeTerm) -> float:
+    return (
+        term.amount
+        if term.amount is not None
+        else term.amount_min
+        if term.amount_min is not None
+        else 1.0
+    )
+
+
+def _term_type(mapping: dict[str, JsonValue]) -> RawRecipeTermType:
+    value = mapping.get("type", "unknown")
+    if isinstance(value, str) and value in {"item", "fluid", "unknown"}:
+        return cast("RawRecipeTermType", value)
+    context = "type"
+    raise DatasetParseError(context, "expected item, fluid, or unknown")
 
 
 def _diagnose_unknown(
@@ -377,6 +497,15 @@ def _number(
     if isinstance(value, int | float) and not isinstance(value, bool):
         return float(value)
     raise DatasetParseError(key, "expected number")
+
+
+def _optional_number(mapping: dict[str, JsonValue], key: str) -> float | None:
+    value = mapping.get(key)
+    if value is None:
+        return None
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    raise DatasetParseError(key, "expected number or null")
 
 
 def _optional_int(mapping: dict[str, JsonValue], key: str) -> int | None:

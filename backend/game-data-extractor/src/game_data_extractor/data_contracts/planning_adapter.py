@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from game_data_extractor.data_contracts.factory_data import (
     SCHEMA_VERSION,
@@ -8,6 +8,7 @@ from game_data_extractor.data_contracts.factory_data import (
     FactoryDataPackage,
     Item,
     Recipe,
+    RecipeTerm,
     UnlockCondition,
 )
 
@@ -15,7 +16,12 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from game_data_extractor.data_contracts.dataset import OptimizerRecipeDataset
-    from game_data_extractor.data_contracts.recipe_models import RecipePrototype
+    from game_data_extractor.data_contracts.factory_data import RecipeTermType
+    from game_data_extractor.data_contracts.recipe_models import (
+        ItemPrototype,
+        RawRecipeTerm,
+        RecipePrototype,
+    )
 
 TOLERANCE = 1e-7
 UNMET_DEMAND_PENALTY_RATE = 1e9
@@ -43,18 +49,43 @@ def dataset_to_factory_data_package(
 ) -> FactoryDataPackage:
     accepted = tuple(accepted_inputs or accepted_early_pyanodon_inputs(dataset))
     technology_by_recipe = _recipe_unlocks_by_technology(dataset)
+    items = _canonical_items(dataset)
+    item_kinds: dict[str, RecipeTermType] = {
+        item.name: cast("RecipeTermType", item.prototype_type) for item in items
+    }
     return FactoryDataPackage(
         schema_version=SCHEMA_VERSION,
-        items=tuple(
-            Item(id=item.name, kind=item.prototype_type) for item in dataset.items
-        ),
+        items=tuple(Item(id=item.name, kind=item.prototype_type) for item in items),
         recipes=tuple(
-            _convert_recipe(recipe, technology_by_recipe) for recipe in dataset.recipes
+            _convert_recipe(recipe, technology_by_recipe, item_kinds)
+            for recipe in dataset.recipes
+            if _has_nonzero_coefficients(recipe)
         ),
         final_demands=dict(demands_per_second),
         external_supplies={name: ExternalSupply(cost=1.0) for name in accepted},
         unmet_demand_penalty_rate=UNMET_DEMAND_PENALTY_RATE,
     )
+
+
+def _canonical_items(dataset: OptimizerRecipeDataset) -> tuple[ItemPrototype, ...]:
+    """Return items with duplicate generated parameter pseudo-items removed."""
+    items: list[ItemPrototype] = []
+    seen: set[str] = set()
+    for item in dataset.items:
+        if item.name in seen and item.name.startswith("parameter-"):
+            continue
+        seen.add(item.name)
+        items.append(item)
+    return tuple(items)
+
+
+def _has_nonzero_coefficients(recipe: RecipePrototype) -> bool:
+    coefficients: dict[str, float] = {}
+    for coefficient in recipe.coefficients:
+        coefficients[coefficient.item_name] = (
+            coefficients.get(coefficient.item_name, 0.0) + coefficient.amount
+        )
+    return any(abs(value) > TOLERANCE for value in coefficients.values())
 
 
 def _recipe_unlocks_by_technology(dataset: OptimizerRecipeDataset) -> dict[str, str]:
@@ -71,6 +102,7 @@ def _recipe_unlocks_by_technology(dataset: OptimizerRecipeDataset) -> dict[str, 
 def _convert_recipe(
     recipe: RecipePrototype,
     technology_by_recipe: Mapping[str, str],
+    item_kinds: Mapping[str, RecipeTermType],
 ) -> Recipe:
     coefficients: dict[str, float] = {}
     for coefficient in recipe.coefficients:
@@ -84,9 +116,59 @@ def _convert_recipe(
             for name, value in coefficients.items()
             if abs(value) > TOLERANCE
         },
+        energy_required=recipe.energy_required,
+        ingredients=tuple(
+            _convert_term(term, item_kinds) for term in recipe.ingredients
+        )
+        or tuple(
+            RecipeTerm(
+                type="unknown",
+                name=coefficient.item_name,
+                amount=-coefficient.amount,
+            )
+            for coefficient in recipe.coefficients
+            if coefficient.amount < -TOLERANCE
+        ),
+        results=tuple(_convert_term(term, item_kinds) for term in recipe.results)
+        or tuple(
+            RecipeTerm(
+                type="unknown",
+                name=coefficient.item_name,
+                amount=coefficient.amount,
+            )
+            for coefficient in recipe.coefficients
+            if coefficient.amount > TOLERANCE
+        ),
         production_cost=0.0,
         category=recipe.category,
         unlock_condition=_recipe_unlock_condition(recipe, technology_by_recipe),
+        source_prototype_type=recipe.source_prototype_type,
+        source_prototype_name=recipe.source_prototype_name,
+    )
+
+
+def _convert_term(
+    term: RawRecipeTerm,
+    item_kinds: Mapping[str, RecipeTermType],
+) -> RecipeTerm:
+    term_type = term.type
+    known_kind = item_kinds.get(term.name)
+    if term_type == "unknown" and known_kind is not None:
+        term_type = known_kind
+    if term_type in {"item", "fluid"} and known_kind != term_type:
+        term_type = "unknown"
+    return RecipeTerm(
+        type=term_type,
+        name=term.name,
+        amount=term.amount,
+        amount_min=term.amount_min,
+        amount_max=term.amount_max,
+        probability=term.probability,
+        catalyst_amount=term.catalyst_amount,
+        temperature=term.temperature,
+        minimum_temperature=term.minimum_temperature,
+        maximum_temperature=term.maximum_temperature,
+        fluidbox_index=term.fluidbox_index,
     )
 
 

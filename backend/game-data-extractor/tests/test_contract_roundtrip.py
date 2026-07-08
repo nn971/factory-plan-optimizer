@@ -10,12 +10,15 @@ from game_data_extractor.data_contracts import (
     FactoryDataPackageParseError,
     ItemPrototype,
     OptimizerRecipeDataset,
+    RawRecipeTerm,
     RecipeCoefficient,
     RecipePrototype,
     RecipeUnlock,
     TechnologyPrototype,
     dataset_to_factory_data_package,
 )
+
+MAXIMUM_TEMPERATURE = 15.0
 
 
 def test_factory_data_package_from_json_to_json_roundtrip() -> None:
@@ -27,6 +30,11 @@ def test_factory_data_package_from_json_to_json_roundtrip() -> None:
                 {
                     "id": "smelt-iron",
                     "coefficients": {"iron-ore": -1.0, "iron-plate": 1.0},
+                    "energy_required": 3.2,
+                    "ingredients": [
+                        {"type": "unknown", "name": "iron-ore", "amount": 1.0}
+                    ],
+                    "results": [{"type": "item", "name": "iron-plate", "amount": 1.0}],
                     "production_cost": 0.5,
                 },
             ],
@@ -67,6 +75,9 @@ def test_factory_data_package_accepts_explicit_metadata_unlock_forms() -> None:
                 "category": "smelting",
                 "unlock_condition": {"type": "technology", "id": "advanced-smelting"},
                 "coefficients": {"iron-ore": -1.0, "iron-plate": 1.0},
+                "energy_required": 3.2,
+                "ingredients": [{"type": "unknown", "name": "iron-ore", "amount": 1.0}],
+                "results": [{"type": "item", "name": "iron-plate", "amount": 1.0}],
                 "production_cost": 0.5,
             },
         ],
@@ -117,6 +128,9 @@ def test_factory_data_package_rejects_invalid_metadata(
             {
                 "id": "mine-iron",
                 "coefficients": {"iron-ore": 1.0},
+                "energy_required": 1.0,
+                "ingredients": [],
+                "results": [{"type": "unknown", "name": "iron-ore", "amount": 1.0}],
                 "production_cost": 0.5,
             },
         ],
@@ -139,6 +153,7 @@ def test_planning_adapter_derives_category_and_unlocks() -> None:
                 "mining",
                 1.0,
                 (RecipeCoefficient("iron-ore", 1.0, "output"),),
+                results=(RawRecipeTerm(type="item", name="iron-ore", amount=1.0),),
                 enabled=False,
             ),
             RecipePrototype(
@@ -147,6 +162,8 @@ def test_planning_adapter_derives_category_and_unlocks() -> None:
                 1.0,
                 (RecipeCoefficient("iron-ore", 1.0, "output"),),
                 enabled=True,
+                source_prototype_type="boiler",
+                source_prototype_name="free-boiler",
             ),
         ),
         technologies=(
@@ -167,7 +184,75 @@ def test_planning_adapter_derives_category_and_unlocks() -> None:
     assert package.recipes[0].category == "mining"
     assert package.recipes[0].unlock_condition.type == "technology"
     assert package.recipes[0].unlock_condition.id == "a-tech"
+    assert package.recipes[0].results[0].type == "item"
+    assert package.recipes[0].results[0].name == "iron-ore"
     assert package.recipes[1].unlock_condition.type == "start-unlocked"
+    assert package.recipes[1].source_prototype_type == "boiler"
+    assert package.recipes[1].source_prototype_name == "free-boiler"
+    assert package.recipes[1].production_cost == 0.0
+
+
+def test_planning_adapter_deduplicates_generated_parameter_items() -> None:
+    dataset = OptimizerRecipeDataset(
+        items=(
+            ItemPrototype("parameter-0", "item"),
+            ItemPrototype("parameter-0", "item"),
+            ItemPrototype("iron-plate", "item"),
+        ),
+        recipes=(
+            RecipePrototype(
+                "make-iron",
+                "crafting",
+                1.0,
+                (RecipeCoefficient("iron-plate", 1.0, "output"),),
+                results=(RawRecipeTerm(type="item", name="iron-plate", amount=1.0),),
+                enabled=True,
+            ),
+        ),
+    )
+
+    package = dataset_to_factory_data_package(dataset, {"iron-plate": 1.0}, ())
+    reparsed = FactoryDataPackage.from_json(package.to_json())
+
+    assert [item.id for item in reparsed.items] == ["parameter-0", "iron-plate"]
+
+
+def test_planning_adapter_skips_zero_coefficient_recipes() -> None:
+    dataset = OptimizerRecipeDataset(
+        items=(ItemPrototype("iron-plate", "item"),),
+        recipes=(
+            RecipePrototype(
+                "empty-generated-recipe",
+                "crafting",
+                1.0,
+                (),
+                enabled=True,
+            ),
+            RecipePrototype(
+                "net-zero-generated-recipe",
+                "crafting",
+                1.0,
+                (
+                    RecipeCoefficient("iron-plate", 1.0, "output"),
+                    RecipeCoefficient("iron-plate", -1.0, "input"),
+                ),
+                enabled=True,
+            ),
+            RecipePrototype(
+                "make-iron",
+                "crafting",
+                1.0,
+                (RecipeCoefficient("iron-plate", 1.0, "output"),),
+                results=(RawRecipeTerm(type="item", name="iron-plate", amount=1.0),),
+                enabled=True,
+            ),
+        ),
+    )
+
+    package = dataset_to_factory_data_package(dataset, {"iron-plate": 1.0}, ())
+    reparsed = FactoryDataPackage.from_json(package.to_json())
+
+    assert [recipe.id for recipe in reparsed.recipes] == ["make-iron"]
 
 
 def test_optimizer_recipe_dataset_from_json_to_json_roundtrip() -> None:
@@ -186,8 +271,25 @@ def test_optimizer_recipe_dataset_from_json_to_json_roundtrip() -> None:
                             "coefficient_kind": "output",
                         }
                     ],
+                    "ingredients": [],
+                    "results": [
+                        {
+                            "type": "item",
+                            "name": "iron-ore",
+                            "amount_min": 1.0,
+                            "amount_max": 2.0,
+                            "probability": 0.5,
+                            "temperature": 10.0,
+                            "minimum_temperature": 5.0,
+                            "maximum_temperature": MAXIMUM_TEMPERATURE,
+                            "catalyst_amount": 0.0,
+                            "fluidbox_index": 0,
+                        }
+                    ],
                     "enabled": True,
                     "hidden": False,
+                    "source_prototype_type": "boiler",
+                    "source_prototype_name": "mine-boiler",
                 }
             ],
             "technologies": [],
@@ -204,3 +306,6 @@ def test_optimizer_recipe_dataset_from_json_to_json_roundtrip() -> None:
     reparsed = OptimizerRecipeDataset.from_json(dataset.to_json())
 
     assert reparsed == dataset
+    assert reparsed.recipes[0].results[0].maximum_temperature == MAXIMUM_TEMPERATURE
+    assert reparsed.recipes[0].source_prototype_type == "boiler"
+    assert reparsed.recipes[0].source_prototype_name == "mine-boiler"

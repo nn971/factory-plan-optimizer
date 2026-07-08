@@ -3,12 +3,23 @@ import re
 
 import pytest
 
-from game_data_extractor.data_contracts import DatasetParseError
-from game_data_extractor.data_raw_normalization import normalize_data_raw_dump
+from game_data_extractor.data_contracts import DatasetParseError, RawRecipeTerm
+from game_data_extractor.data_raw_normalization import (
+    _coefficient_amount,
+    normalize_data_raw_dump,
+)
 from paths import FIXTURES_ROOT
 
 FIXTURE_DIR = FIXTURES_ROOT / "data_raw"
 VARIANT_ENERGY_REQUIRED = 3.0
+FACTORIO_DEFAULT_ENERGY_REQUIRED = 0.5
+WATER_MINIMUM_TEMPERATURE = 15
+WATER_MAXIMUM_TEMPERATURE = 100
+STEAM_AMOUNT_MIN = 80
+STEAM_AMOUNT_MAX = 100
+STEAM_PROBABILITY = 0.75
+STEAM_CATALYST_AMOUNT = 5
+STEAM_TEMPERATURE = 165
 
 
 def test_normalizes_common_data_raw_shapes() -> None:
@@ -67,6 +78,129 @@ def test_normalized_dataset_json_is_deterministic_and_valid() -> None:
     assert [recipe["name"] for recipe in parsed["recipes"]] == sorted(
         recipe["name"] for recipe in parsed["recipes"]
     )
+
+
+def test_recipe_terms_preserve_raw_temperature_and_probability_fields() -> None:
+    dataset = normalize_data_raw_dump(
+        json.dumps(
+            {
+                "fluid": {"water": {"name": "water"}, "steam": {"name": "steam"}},
+                "recipe": {
+                    "heated-steam": {
+                        "ingredients": [
+                            {
+                                "type": "fluid",
+                                "name": "water",
+                                "amount": 100,
+                                "minimum_temperature": 15,
+                                "maximum_temperature": 100,
+                                "fluidbox_index": 1,
+                            }
+                        ],
+                        "results": [
+                            {
+                                "type": "fluid",
+                                "name": "steam",
+                                "amount_min": 80,
+                                "amount_max": 100,
+                                "probability": 0.75,
+                                "catalyst_amount": 5,
+                                "temperature": 165,
+                                "fluidbox_index": 2,
+                            }
+                        ],
+                    }
+                },
+            }
+        ),
+    )
+
+    recipe = dataset.recipes[0]
+    assert recipe.energy_required == FACTORIO_DEFAULT_ENERGY_REQUIRED
+    assert recipe.ingredients[0].minimum_temperature == WATER_MINIMUM_TEMPERATURE
+    assert recipe.ingredients[0].maximum_temperature == WATER_MAXIMUM_TEMPERATURE
+    assert recipe.ingredients[0].fluidbox_index == 1
+    assert recipe.results[0].amount_min == STEAM_AMOUNT_MIN
+    assert recipe.results[0].amount_max == STEAM_AMOUNT_MAX
+    assert recipe.results[0].probability == STEAM_PROBABILITY
+    assert recipe.results[0].catalyst_amount == STEAM_CATALYST_AMOUNT
+    assert recipe.results[0].temperature == STEAM_TEMPERATURE
+    assert {
+        coefficient.item_name: coefficient.amount for coefficient in recipe.coefficients
+    } == {"water": -100.0, "steam": 80.0}
+
+
+def test_amount_min_zero_is_preserved_for_coefficients() -> None:
+    term = RawRecipeTerm(type="unknown", name="dust", amount_min=0)
+
+    assert _coefficient_amount(term) == 0
+
+
+def test_boiler_prototypes_emit_recipe_like_transforms() -> None:
+    dataset = normalize_data_raw_dump(
+        json.dumps(
+            {
+                "fluid": {"water": {"name": "water"}, "steam": {"name": "steam"}},
+                "boiler": {
+                    "boiler": {
+                        "name": "boiler",
+                        "fluid_box": {"filter": "water"},
+                        "output_fluid_box": {"filter": "steam"},
+                        "target_temperature": 165,
+                    },
+                    "fast-boiler": {
+                        "name": "fast-boiler",
+                        "fluid_box": {"filter": "water"},
+                        "output_fluid_box": {"filter": "steam"},
+                        "target_temperature": 165,
+                    },
+                },
+            }
+        ),
+    )
+
+    recipes = {recipe.name: recipe for recipe in dataset.recipes}
+    assert set(recipes) == {
+        "boiler-boiler-water-to-steam",
+        "boiler-fast-boiler-water-to-steam",
+    }
+    recipe = recipes["boiler-boiler-water-to-steam"]
+    assert recipe.source_prototype_type == "boiler"
+    assert recipe.source_prototype_name == "boiler"
+    assert recipe.energy_required > 0
+    assert {
+        coefficient.item_name: coefficient.amount for coefficient in recipe.coefficients
+    } == {
+        "water": -1.0,
+        "steam": 1.0,
+    }
+    assert recipe.ingredients[0].name == "water"
+    assert recipe.results[0].name == "steam"
+    assert recipe.results[0].temperature == STEAM_TEMPERATURE
+
+
+def test_malformed_recipe_term_type_fails_clearly() -> None:
+    dataset = normalize_data_raw_dump(
+        json.dumps(
+            {
+                "item": {"ore": {"name": "ore"}, "plate": {"name": "plate"}},
+                "recipe": {
+                    "bad-term-type": {
+                        "ingredients": [
+                            {"type": ["fluid"], "name": "ore", "amount": 1}
+                        ],
+                        "result": "plate",
+                    }
+                },
+            }
+        ),
+    )
+
+    assert dataset.recipes == ()
+    assert ("malformed-prototype", "bad-term-type") in {
+        (diagnostic.code, diagnostic.subject) for diagnostic in dataset.diagnostics
+    }
+    assert "type: expected item, fluid, or unknown" in dataset.diagnostics[0].message
 
 
 def test_malformed_data_raw_fails_clearly() -> None:

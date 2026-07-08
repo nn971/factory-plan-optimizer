@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from json import JSONDecodeError
+from typing import cast
 
 from game_data_extractor.data_contracts.dataset import OptimizerRecipeDataset
 from game_data_extractor.data_contracts.provenance_models import (
@@ -15,10 +16,13 @@ from game_data_extractor.data_contracts.provenance_parsing import (
 )
 from game_data_extractor.data_contracts.recipe_models import (
     ItemPrototype,
+    RawRecipeTerm,
+    RawRecipeTermType,
     RecipeCoefficient,
     RecipePrototype,
     RecipeUnlock,
     ResourceSource,
+    SourcePrototypeType,
     TechnologyPrototype,
 )
 from game_data_extractor.data_contracts.types import (
@@ -93,8 +97,19 @@ def _recipe_from_mapping(value: JsonValue) -> RecipePrototype:
             _coefficient_from_mapping(coefficient)
             for coefficient in _array(mapping, "coefficients")
         ],
+        ingredients=[
+            _recipe_term_from_mapping(term) for term in _array(mapping, "ingredients")
+        ],
+        results=[
+            _recipe_term_from_mapping(term) for term in _array(mapping, "results")
+        ],
         enabled=_boolean(mapping, "enabled", default=False),
         hidden=_boolean(mapping, "hidden", default=False),
+        source_prototype_type=cast(
+            "SourcePrototypeType",
+            _string(mapping, "source_prototype_type", default="recipe"),
+        ),
+        source_prototype_name=_optional_string(mapping, "source_prototype_name"),
     )
 
 
@@ -104,6 +119,23 @@ def _coefficient_from_mapping(value: JsonValue) -> RecipeCoefficient:
         item_name=_string(mapping, "item_name"),
         amount=_number(mapping, "amount"),
         coefficient_kind=_coefficient_kind(mapping, "coefficient_kind"),
+    )
+
+
+def _recipe_term_from_mapping(value: JsonValue) -> RawRecipeTerm:
+    mapping = _as_mapping(value, "recipe term")
+    return RawRecipeTerm(
+        type=_recipe_term_type(mapping, "type"),
+        name=_string(mapping, "name"),
+        amount=_optional_number(mapping, "amount"),
+        amount_min=_optional_number(mapping, "amount_min"),
+        amount_max=_optional_number(mapping, "amount_max"),
+        probability=_optional_number(mapping, "probability"),
+        catalyst_amount=_optional_number(mapping, "catalyst_amount"),
+        temperature=_optional_number(mapping, "temperature"),
+        minimum_temperature=_optional_number(mapping, "minimum_temperature"),
+        maximum_temperature=_optional_number(mapping, "maximum_temperature"),
+        fluidbox_index=_optional_int(mapping, "fluidbox_index"),
     )
 
 
@@ -221,6 +253,15 @@ def _number(mapping: dict[str, JsonValue], key: str) -> float:
     raise DatasetParseError(key, "expected number")
 
 
+def _optional_number(mapping: dict[str, JsonValue], key: str) -> float | None:
+    value = mapping.get(key)
+    if value is None:
+        return None
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    raise DatasetParseError(key, "expected number or null")
+
+
 def _optional_int(mapping: dict[str, JsonValue], key: str) -> int | None:
     value = mapping.get(key)
     if value is None:
@@ -245,6 +286,14 @@ def _coefficient_kind(mapping: dict[str, JsonValue], key: str) -> CoefficientKin
         case "output":
             return "output"
     raise DatasetParseError(key, "expected input or output")
+
+
+def _recipe_term_type(mapping: dict[str, JsonValue], key: str) -> RawRecipeTermType:
+    value = _string(mapping, key)
+    match value:
+        case "item" | "fluid" | "unknown":
+            return value
+    raise DatasetParseError(key, "expected item, fluid, or unknown")
 
 
 def _diagnostic_severity(

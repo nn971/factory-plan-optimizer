@@ -165,11 +165,21 @@ def test_planning_adapter_derives_category_and_unlocks() -> None:
                 source_prototype_type="boiler",
                 source_prototype_name="free-boiler",
             ),
+            RecipePrototype(
+                "manual-iron",
+                "crafting",
+                1.0,
+                (RecipeCoefficient("iron-ore", 1.0, "output"),),
+                enabled=True,
+            ),
         ),
         technologies=(
             TechnologyPrototype(
                 "z-tech",
-                unlocks=(RecipeUnlock("z-tech", "mine-iron"),),
+                unlocks=(
+                    RecipeUnlock("z-tech", "mine-iron"),
+                    RecipeUnlock("z-tech", "free-iron"),
+                ),
             ),
             TechnologyPrototype(
                 "a-tech",
@@ -186,10 +196,75 @@ def test_planning_adapter_derives_category_and_unlocks() -> None:
     assert package.recipes[0].unlock_condition.id == "a-tech"
     assert package.recipes[0].results[0].type == "item"
     assert package.recipes[0].results[0].name == "iron-ore"
-    assert package.recipes[1].unlock_condition.type == "start-unlocked"
+    assert package.recipes[1].unlock_condition.type == "technology"
+    assert package.recipes[1].unlock_condition.id == "z-tech"
     assert package.recipes[1].source_prototype_type == "boiler"
     assert package.recipes[1].source_prototype_name == "free-boiler"
     assert package.recipes[1].production_cost == 0.0
+    assert package.recipes[2].unlock_condition.type == "start-unlocked"
+
+
+def test_planning_adapter_derives_science_milestone_recipe_sets() -> None:
+    dataset = OptimizerRecipeDataset(
+        items=(
+            ItemPrototype("iron-ore", "item"),
+            ItemPrototype("automation-science-pack", "item"),
+            ItemPrototype("py-science-pack-1", "item"),
+        ),
+        recipes=(
+            RecipePrototype(
+                "mine-iron",
+                "mining",
+                1.0,
+                (RecipeCoefficient("iron-ore", 1.0, "output"),),
+                enabled=True,
+            ),
+            RecipePrototype(
+                "make-automation-science",
+                "crafting",
+                1.0,
+                (
+                    RecipeCoefficient("iron-ore", -1.0, "input"),
+                    RecipeCoefficient("automation-science-pack", 1.0, "output"),
+                ),
+                enabled=True,
+            ),
+            RecipePrototype(
+                "make-py1-science",
+                "crafting",
+                1.0,
+                (
+                    RecipeCoefficient("automation-science-pack", -1.0, "input"),
+                    RecipeCoefficient("py-science-pack-1", 1.0, "output"),
+                ),
+                enabled=False,
+            ),
+        ),
+        technologies=(
+            TechnologyPrototype(
+                "py1-tech",
+                science_pack_ingredients=(
+                    "automation-science-pack",
+                    "py-science-pack-1",
+                ),
+                unlocks=(RecipeUnlock("py1-tech", "make-py1-science"),),
+            ),
+        ),
+    )
+
+    package = dataset_to_factory_data_package(dataset, {"py-science-pack-1": 1.0}, ())
+    reparsed = FactoryDataPackage.from_json(package.to_json())
+
+    milestones = {milestone.milestone: milestone for milestone in reparsed.milestones}
+    assert milestones["automation-science-pack"].recipe_names == (
+        "make-automation-science",
+        "mine-iron",
+    )
+    assert milestones["py-science-pack-1"].recipe_names == (
+        "make-automation-science",
+        "make-py1-science",
+        "mine-iron",
+    )
 
 
 def test_planning_adapter_deduplicates_generated_parameter_items() -> None:

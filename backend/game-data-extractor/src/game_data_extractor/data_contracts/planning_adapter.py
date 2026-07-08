@@ -11,6 +11,11 @@ from game_data_extractor.data_contracts.factory_data import (
     RecipeTerm,
     UnlockCondition,
 )
+from game_data_extractor.data_contracts.milestones import calculate_milestone_recipe_set
+from game_data_extractor.data_contracts.provenance_models import (
+    MilestoneDefinition,
+    MilestoneRecipeSet,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -26,6 +31,17 @@ if TYPE_CHECKING:
 TOLERANCE = 1e-7
 UNMET_DEMAND_PENALTY_RATE = 1e9
 EXACT_ACCEPTED_INPUTS = frozenset({"water", "stone", "native-flora", "kerogen"})
+SCIENCE_MILESTONE_ORDER = (
+    "automation-science-pack",
+    "py-science-pack-1",
+    "logistic-science-pack",
+    "py-science-pack-2",
+    "military-science-pack",
+    "chemical-science-pack",
+)
+SCIENCE_MILESTONE_INDEX = {
+    item_id: index for index, item_id in enumerate(SCIENCE_MILESTONE_ORDER)
+}
 
 
 def accepted_early_pyanodon_inputs(dataset: OptimizerRecipeDataset) -> tuple[str, ...]:
@@ -53,17 +69,19 @@ def dataset_to_factory_data_package(
     item_kinds: dict[str, RecipeTermType] = {
         item.name: cast("RecipeTermType", item.prototype_type) for item in items
     }
+    recipes = tuple(
+        _convert_recipe(recipe, technology_by_recipe, item_kinds)
+        for recipe in dataset.recipes
+        if _has_nonzero_coefficients(recipe)
+    )
     return FactoryDataPackage(
         schema_version=SCHEMA_VERSION,
         items=tuple(Item(id=item.name, kind=item.prototype_type) for item in items),
-        recipes=tuple(
-            _convert_recipe(recipe, technology_by_recipe, item_kinds)
-            for recipe in dataset.recipes
-            if _has_nonzero_coefficients(recipe)
-        ),
+        recipes=recipes,
         final_demands=dict(demands_per_second),
         external_supplies={name: ExternalSupply(cost=1.0) for name in accepted},
         unmet_demand_penalty_rate=UNMET_DEMAND_PENALTY_RATE,
+        milestones=_science_milestones(dataset, recipes),
     )
 
 
@@ -97,6 +115,100 @@ def _recipe_unlocks_by_technology(dataset: OptimizerRecipeDataset) -> dict[str, 
         recipe_name: sorted(technology_names)[0]
         for recipe_name, technology_names in unlocks.items()
     }
+
+
+def _science_milestones(
+    dataset: OptimizerRecipeDataset,
+    recipes: Sequence[Recipe],
+) -> tuple[MilestoneRecipeSet, ...]:
+    package_recipe_names = {recipe.id for recipe in recipes}
+    milestone_item_ids = sorted(
+        (item.name for item in dataset.items if "science-pack" in item.name),
+        key=lambda item_id: (
+            SCIENCE_MILESTONE_INDEX.get(item_id, len(SCIENCE_MILESTONE_INDEX)),
+            item_id,
+        ),
+    )
+    return tuple(
+        _science_milestone(dataset, item_id, package_recipe_names)
+        for item_id in milestone_item_ids
+    )
+
+
+def _science_milestone(
+    dataset: OptimizerRecipeDataset,
+    item_id: str,
+    package_recipe_names: set[str],
+) -> MilestoneRecipeSet:
+    completed_technologies = _researchable_technologies(
+        dataset,
+        allowed_science_packs=_allowed_science_packs(dataset, item_id),
+    )
+    result = calculate_milestone_recipe_set(
+        dataset,
+        MilestoneDefinition(
+            name=item_id,
+            completed_technologies=completed_technologies,
+        ),
+    )
+    return MilestoneRecipeSet(
+        milestone=result.milestone,
+        recipe_names=tuple(
+            recipe_name
+            for recipe_name in result.recipe_names
+            if recipe_name in package_recipe_names
+        ),
+        diagnostics=result.diagnostics,
+    )
+
+
+def _allowed_science_packs(
+    dataset: OptimizerRecipeDataset,
+    milestone_item_id: str,
+) -> set[str]:
+    science_pack_ids = {
+        item.name for item in dataset.items if "science-pack" in item.name
+    }
+    if milestone_item_id not in SCIENCE_MILESTONE_INDEX:
+        return set(science_pack_ids)
+    milestone_index = SCIENCE_MILESTONE_INDEX[milestone_item_id]
+    return {
+        item_id
+        for item_id in science_pack_ids
+        if SCIENCE_MILESTONE_INDEX.get(item_id, len(SCIENCE_MILESTONE_INDEX))
+        <= milestone_index
+    }
+
+
+def _researchable_technologies(
+    dataset: OptimizerRecipeDataset,
+    *,
+    allowed_science_packs: set[str],
+) -> tuple[str, ...]:
+    technologies = {technology.name: technology for technology in dataset.technologies}
+    reachable: set[str] = set()
+    changed = True
+    while changed:
+        changed = False
+        for technology in dataset.technologies:
+            if (
+                technology.name in reachable
+                or technology.hidden
+                or not technology.enabled
+            ):
+                continue
+            if not set(technology.science_pack_ingredients).issubset(
+                allowed_science_packs,
+            ):
+                continue
+            if not all(
+                prerequisite in reachable or prerequisite not in technologies
+                for prerequisite in technology.prerequisites
+            ):
+                continue
+            reachable.add(technology.name)
+            changed = True
+    return tuple(sorted(reachable))
 
 
 def _convert_recipe(
@@ -176,9 +288,9 @@ def _recipe_unlock_condition(
     recipe: RecipePrototype,
     technology_by_recipe: Mapping[str, str],
 ) -> UnlockCondition:
-    if recipe.enabled:
-        return UnlockCondition(type="start-unlocked")
     technology_id = technology_by_recipe.get(recipe.name)
     if technology_id is not None:
         return UnlockCondition(type="technology", id=technology_id)
+    if recipe.enabled:
+        return UnlockCondition(type="start-unlocked")
     return UnlockCondition(type="unknown")

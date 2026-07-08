@@ -85,7 +85,7 @@ uv run game-data-extractor export-factory-data \
   --dataset data/generated/importer-workflow/dataset.json \
   --demand iron-plate=60/min \
   --accepted-input iron-ore \
-  --output data/packages/default.factory-data.json
+  --output data/generated/default.factory-data.json
 ```
 
 Demand rates use the same `ITEM=RATE/min` syntax as `plan` and are stored as
@@ -106,23 +106,20 @@ normalized counts, diagnostics, and milestone recipe deltas/counts.
 
 ## Artifact policy
 
-Write generated importer artifacts under `data/generated/`, not under `.omo/`.
-The `.omo/` directory is reserved for agent/workflow scratch state. Do not commit
-real saves, mod zip files, full `data.raw` dumps, or generated large datasets.
-Keep only small hand-written fixtures and concise evidence files that are safe to
-review. Small curated canonical packages may live under `data/packages/`; the API
-prefers `data/packages/default.factory-data.json` after the explicit
-`FACTORY_PLAN_DEFAULT_DATA_PATH` override.
-
-The real-save smoke-test artifacts from local verification are stored in:
+The default data layout is:
 
 ```text
-data/generated/real-save-test/
+data/raw/default-data-raw-dump.json
+data/generated/default-game-data.json
+data/generated/technology-prerequisite-graph.json
+data/generated/milestone-recipe-sets.json
+data/generated/default.factory-data.json
 ```
 
-Those artifacts include the copied `data.raw` dump, normalized dataset,
-diagnostics, generated science milestones, and milestone recipe exports. The
-directory is ignored by git through the `data/generated/` rule.
+`data/raw/default-data-raw-dump.json` is the long-lived raw source of truth.
+Files under `data/generated/` are derived from it. The API loads
+`data/generated/default.factory-data.json` unless `FACTORY_PLAN_DEFAULT_DATA_PATH`
+is set, then falls back to the toy example.
 
 ## Limitations
 

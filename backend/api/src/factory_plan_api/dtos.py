@@ -27,6 +27,11 @@ class ExternalInputDto(BaseModel):
     default_approved: bool = False
 
 
+class MilestoneDto(BaseModel):
+    item_id: str
+    recipe_ids: list[str]
+
+
 class ProblemDto(BaseModel):
     package_id: str | None = None
     scenario_id: str | None = None
@@ -39,6 +44,7 @@ class ProblemDto(BaseModel):
     external_inputs: list[ExternalInputDto]
     raw_input_candidates: list[ExternalInputDto] = Field(default_factory=list)
     recipe_ids: list[str] = Field(default_factory=list)
+    milestones: list[MilestoneDto] = Field(default_factory=list)
     item_metadata: dict[str, dict[str, str]] = Field(default_factory=dict)
     recipe_metadata: dict[str, dict[str, str]] = Field(default_factory=dict)
 
@@ -112,6 +118,7 @@ class ExplorerRecipeDto(BaseModel):
 class ExplorerResponseDto(BaseModel):
     package_id: str
     overview: ExplorerOverviewDto
+    milestones: list[MilestoneDto] = Field(default_factory=list)
     items: list[ExplorerItemDto]
     recipes: list[ExplorerRecipeDto]
 

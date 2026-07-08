@@ -42,7 +42,10 @@ export function createEditableProblem(problem: ProblemDto): EditableProblem {
   };
 }
 
-export function toSolveRequest(editable: EditableProblem, packageId?: string | null): SolveRequestDto {
+export function toSolveRequest(
+  editable: EditableProblem,
+  packageId?: string | null,
+): SolveRequestDto {
   return {
     package_id: packageId ?? undefined,
     solve_mode: editable.solveMode,

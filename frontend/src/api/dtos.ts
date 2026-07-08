@@ -13,6 +13,11 @@ export type ExplorerOverviewDto = {
   recipe_categories: string[];
 };
 
+export type MilestoneDto = {
+  item_id: string;
+  recipe_ids: string[];
+};
+
 export type ExplorerRecipeLinkDto = { id: string; category: string };
 
 export type ExplorerItemDto = {
@@ -61,6 +66,7 @@ export type ExplorerRecipeDto = {
 export type ExplorerResponseDto = {
   package_id: string;
   overview: ExplorerOverviewDto;
+  milestones: MilestoneDto[];
   items: ExplorerItemDto[];
   recipes: ExplorerRecipeDto[];
 };
@@ -89,6 +95,7 @@ export type ProblemDto = {
   external_inputs: ExternalInputDto[];
   raw_input_candidates: ExternalInputDto[];
   recipe_ids: string[];
+  milestones: MilestoneDto[];
   item_metadata: Record<string, Record<string, string>>;
   recipe_metadata: Record<string, Record<string, string>>;
 };

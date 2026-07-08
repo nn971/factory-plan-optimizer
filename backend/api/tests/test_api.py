@@ -27,10 +27,18 @@ HTTP_UNPROCESSABLE_ENTITY = 422
 DEFAULT_PACKAGE_ID = "default-first-3-science-v1"
 DEFAULT_SCENARIO_ID = "first-3-science-v1"
 DEFAULT_EXTERNAL_INPUT_CAPACITY = 100000.0
-SCIENCE_TARGETS = [
+CURATED_SCIENCE_TARGETS = [
     "automation-science-pack",
     "logistic-science-pack",
     "py-science-pack-1",
+]
+FIRST_SIX_SCIENCE_TARGETS = [
+    "automation-science-pack",
+    "py-science-pack-1",
+    "logistic-science-pack",
+    "py-science-pack-2",
+    "military-science-pack",
+    "chemical-science-pack",
 ]
 SCIENCE_TEST_RATE = 2.0
 UNPRODUCIBLE_WATER_DEMAND = 2.0
@@ -42,7 +50,7 @@ def _repository_root() -> Path:
 
 
 def _curated_default_path() -> Path:
-    return _repository_root() / "data" / "packages" / "default.factory-data.json"
+    return Path(__file__).parent / "fixtures" / "curated-default.factory-data.json"
 
 
 def _water_package(demand: float = 2.0) -> dict[str, Any]:
@@ -142,7 +150,11 @@ def test_default_problem_endpoint_shape() -> None:
     } <= set(body)
     assert body["package_id"] == DEFAULT_PACKAGE_ID
     assert body["scenario_id"] == DEFAULT_SCENARIO_ID
-    assert body["target_demands"] == SCIENCE_TARGETS
+    assert (
+        body["target_demands"][: len(FIRST_SIX_SCIENCE_TARGETS)]
+        == FIRST_SIX_SCIENCE_TARGETS
+    )
+    assert all("science-pack" in target for target in body["target_demands"])
     assert body["rate_units"] == "items/s"
     assert body["default_solve_mode"] == "hard_demand"
     assert body["item_metadata"] == {}
@@ -343,7 +355,7 @@ def test_curated_default_package_solves_each_single_science_target(
     client = TestClient(app)
     problem = client.get("/api/problem/default").json()
 
-    for target_id in SCIENCE_TARGETS:
+    for target_id in CURATED_SCIENCE_TARGETS:
         queued = client.post(
             "/api/solve",
             json={
@@ -634,7 +646,7 @@ def test_default_resolver_works_from_non_root_cwd(
 
     package = load_default_factory_data()
 
-    assert set(SCIENCE_TARGETS) <= {item.id for item in package.items}
+    assert set(CURATED_SCIENCE_TARGETS) <= {item.id for item in package.items}
 
 
 def test_default_resolver_prefers_generated_real_package_when_present() -> None:
@@ -643,7 +655,7 @@ def test_default_resolver_prefers_generated_real_package_when_present() -> None:
     assert path.as_posix().endswith(GENERATED_DEFAULT_RELATIVE_PATH.as_posix())
 
 
-def test_default_resolver_falls_back_to_curated_when_generated_missing(
+def test_default_resolver_falls_back_to_toy_when_generated_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     original_exists = Path.exists
@@ -657,7 +669,7 @@ def test_default_resolver_falls_back_to_curated_when_generated_missing(
 
     path = default_data_path()
 
-    assert path.as_posix().endswith("data/packages/default.factory-data.json")
+    assert path.as_posix().endswith("examples/data/toy_iron.factory-data.json")
 
 
 def test_default_loader_falls_back_when_generated_is_stale(
@@ -676,25 +688,6 @@ def test_default_loader_falls_back_when_generated_is_stale(
     package = load_default_factory_data()
 
     assert package.schema_version == "factory-data-v2"
-
-
-def test_default_resolver_falls_back_to_toy_when_curated_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original_exists = Path.exists
-
-    def exists_without_curated(path: Path) -> bool:
-        if path.as_posix().endswith(GENERATED_DEFAULT_RELATIVE_PATH.as_posix()):
-            return False
-        if path.as_posix().endswith("data/packages/default.factory-data.json"):
-            return False
-        return original_exists(path)
-
-    monkeypatch.setattr(Path, "exists", exists_without_curated)
-
-    path = default_data_path()
-
-    assert path.as_posix().endswith("examples/data/toy_iron.factory-data.json")
 
 
 def test_default_resolver_uses_env_override(

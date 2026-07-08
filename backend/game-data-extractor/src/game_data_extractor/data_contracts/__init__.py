@@ -42,6 +42,9 @@ from game_data_extractor.data_contracts.recipe_models import (
     ResourceSource,
     TechnologyPrototype,
 )
+from game_data_extractor.data_contracts.technology_graph import (
+    technology_prerequisite_graph_json_value,
+)
 from game_data_extractor.data_contracts.types import (
     CoefficientKind,
     DatasetParseError,
@@ -92,4 +95,5 @@ __all__ = [
     "dataset_to_factory_data_package",
     "load_factory_data_package",
     "load_milestone_definitions",
+    "technology_prerequisite_graph_json_value",
 ]

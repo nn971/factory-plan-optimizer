@@ -13,10 +13,7 @@ if TYPE_CHECKING:
     from game_data_extractor.data_contracts import FactoryDataPackage
 
 DEFAULT_DATA_PATH_ENV = "FACTORY_PLAN_DEFAULT_DATA_PATH"
-GENERATED_DEFAULT_RELATIVE_PATH = Path(
-    "data/generated/real-plan-test/logistic-science.factory-data.json",
-)
-CURATED_DEFAULT_RELATIVE_PATH = Path("data/packages/default.factory-data.json")
+GENERATED_DEFAULT_RELATIVE_PATH = Path("data/generated/default.factory-data.json")
 
 
 def default_data_path() -> Path:
@@ -28,9 +25,6 @@ def default_data_path() -> Path:
     generated_default = repository_root / GENERATED_DEFAULT_RELATIVE_PATH
     if generated_default.exists():
         return generated_default
-    curated_default = repository_root / CURATED_DEFAULT_RELATIVE_PATH
-    if curated_default.exists():
-        return curated_default
     return repository_root / "examples" / "data" / "toy_iron.factory-data.json"
 
 
@@ -48,7 +42,6 @@ def load_default_factory_data() -> FactoryDataPackage:
             # dev startup; explicit env overrides still raise parse errors above.
             repository_root = Path(__file__).resolve().parents[4]
             for fallback in (
-                repository_root / CURATED_DEFAULT_RELATIVE_PATH,
                 repository_root / "examples" / "data" / "toy_iron.factory-data.json",
             ):
                 if fallback.exists():

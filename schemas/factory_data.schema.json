@@ -30,6 +30,11 @@
       "propertyNames": {"$ref": "#/$defs/id"},
       "additionalProperties": {"$ref": "#/$defs/externalSupply"}
     },
+    "milestones": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/milestoneRecipeSet"},
+      "default": []
+    },
     "unmet_demand_penalty_rate": {"type": "number", "minimum": 0}
   },
   "$defs": {
@@ -155,6 +160,38 @@
         "capacity": {
           "anyOf": [
             {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "milestoneRecipeSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["milestone", "recipe_names", "diagnostics"],
+      "properties": {
+        "milestone": {"$ref": "#/$defs/id"},
+        "recipe_names": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/id"}
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/diagnostic"}
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "message", "subject"],
+      "properties": {
+        "severity": {"enum": ["info", "warning", "error"]},
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "subject": {
+          "anyOf": [
+            {"type": "string"},
             {"type": "null"}
           ]
         }

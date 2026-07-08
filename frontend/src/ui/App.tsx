@@ -48,6 +48,7 @@ export function App() {
   const [inputSearch, setInputSearch] = useState('');
   const [showDisabledInputs, setShowDisabledInputs] = useState(false);
   const [storageKey, setStorageKey] = useState<string | null>(null);
+  const [selectedMilestone, setSelectedMilestone] = useState<string>('');
   const pollCancelRef = useRef(false);
   const pollAbortRef = useRef<AbortController | null>(null);
   const explorerRequestTokenRef = useRef(0);
@@ -76,6 +77,16 @@ export function App() {
     }
   }, [editable, storageKey]);
 
+  useEffect(() => {
+    if (!selectedMilestone || !explorer) return;
+    setExplorerSelection((current) => {
+      if (current?.type === 'item' && current.id === selectedMilestone) return current;
+      return explorer.items.some((item) => item.id === selectedMilestone)
+        ? { type: 'item', id: selectedMilestone }
+        : current;
+    });
+  }, [explorer, selectedMilestone]);
+
   async function loadProblem() {
     pollCancelRef.current = true;
     pollAbortRef.current?.abort();
@@ -85,6 +96,7 @@ export function App() {
       const loaded = await apiClient.getDefaultProblem();
       setProblem(loaded);
       setEditable(createEditableProblemFromStorage(loaded));
+      setSelectedMilestone(defaultMilestoneId(loaded));
       setStorageKey(problemLocalStorageKey(loaded));
       setJob(null);
       afterProblemDataChanged();
@@ -107,6 +119,7 @@ export function App() {
       const loaded = { ...uploaded.problem, package_id: uploaded.package_id };
       setProblem(loaded);
       setEditable(createEditableProblemFromStorage(loaded));
+      setSelectedMilestone(defaultMilestoneId(loaded));
       setStorageKey(problemLocalStorageKey(loaded));
       setJob(null);
       afterProblemDataChanged();
@@ -262,11 +275,20 @@ export function App() {
   const itemNames = new Set(problem?.items.map((item) => item.id) ?? []);
   const scenarioTitle = problem?.scenario_label ?? 'Scenario';
   const scenarioId = problem?.scenario_id ?? 'default-scenario';
-  const visibleDemands = Object.entries(editable?.demands ?? {}).filter(([itemId, amount]) => {
-    const matchesSearch = itemId.toLowerCase().includes(demandSearch.toLowerCase());
-    const isTarget = problem?.target_demands.includes(itemId) ?? true;
-    return matchesSearch && (isTarget || Number(amount) > 0);
-  });
+  const milestoneOptions = scienceMilestoneOptions(problem);
+  const targetDemandIdSet = new Set(problem?.target_demands ?? []);
+  const milestoneOrder = new Map(milestoneOptions.map((itemId, index) => [itemId, index]));
+  const visibleDemands = Object.entries(editable?.demands ?? {})
+    .filter(([itemId, amount]) => {
+      const matchesSearch = itemId.toLowerCase().includes(demandSearch.toLowerCase());
+      const isTarget = targetDemandIdSet.has(itemId);
+      return matchesSearch && (isTarget || Number(amount) > 0);
+    })
+    .sort(([left], [right]) => {
+      const leftOrder = milestoneOrder.get(left) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = milestoneOrder.get(right) ?? Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder || left.localeCompare(right);
+    });
   const visibleExternalInputs = (editable?.externalInputs ?? []).filter((input) => {
     const matchesSearch = input.item_id.toLowerCase().includes(inputSearch.toLowerCase());
     return matchesSearch && (showDisabledInputs || input.enabled);
@@ -322,6 +344,12 @@ export function App() {
         </button>
       </nav>
 
+      <MilestonePanel
+        selectedMilestone={selectedMilestone}
+        milestones={milestoneOptions}
+        onSelect={setSelectedMilestone}
+      />
+
       {activeTab === 'solver' ? (
         <>
           <section className="grid two">
@@ -347,9 +375,12 @@ export function App() {
                     </label>
                   </div>
                   {visibleDemands.map(([itemId, amount]) => (
-                    <label className="target-row" key={itemId}>
+                    <label className={`target-row ${itemId === selectedMilestone ? 'active' : ''}`} key={itemId}>
                       <span>
-                        <strong>{friendlyItemName(itemId)}</strong>
+                        <strong>
+                          {friendlyItemName(itemId)}
+                          {itemId === selectedMilestone && <em className="selected-milestone-label">Selected milestone</em>}
+                        </strong>
                         <small>{itemId}</small>
                       </span>
                       <input
@@ -509,9 +540,50 @@ export function App() {
           selection={explorerSelection}
           onSelect={setExplorerSelection}
           onRefresh={() => void loadExplorer()}
+          milestoneItemId={selectedMilestone}
         />
       )}
     </main>
+  );
+}
+
+function MilestonePanel({
+  selectedMilestone,
+  milestones,
+  onSelect,
+}: {
+  selectedMilestone: string;
+  milestones: string[];
+  onSelect: (itemId: string) => void;
+}) {
+  return (
+    <section className="panel milestone-panel" aria-label="Milestone selection">
+      <div>
+        <p className="eyebrow">Milestone</p>
+        <h2>{selectedMilestone ? friendlyItemName(selectedMilestone) : 'No science milestone'}</h2>
+        <p className="muted">
+          The selected science pack is highlighted in Solver and opened in Explorer.
+        </p>
+      </div>
+      <label>
+        Science pack
+        <select
+          value={selectedMilestone}
+          onChange={(event) => onSelect(event.target.value)}
+          disabled={!milestones.length}
+        >
+          {milestones.length ? (
+            milestones.map((itemId) => (
+              <option value={itemId} key={itemId}>
+                {friendlyItemName(itemId)}
+              </option>
+            ))
+          ) : (
+            <option value="">No science packs</option>
+          )}
+        </select>
+      </label>
+    </section>
   );
 }
 
@@ -736,6 +808,26 @@ function sanitizeStringRecord(value: Record<string, unknown>): Record<string, st
 
 function sanitizeInputKind(value: unknown): 'item' | 'fluid' | 'unknown' {
   return value === 'item' || value === 'fluid' || value === 'unknown' ? value : 'unknown';
+}
+
+function scienceMilestoneOptions(problem: ProblemDto | null): string[] {
+  if (!problem) return [];
+  const scienceItemIds = new Set(problem.items.map((item) => item.id).filter(isSciencePackId));
+  for (const milestone of problem.milestones) {
+    if (isSciencePackId(milestone.item_id)) scienceItemIds.add(milestone.item_id);
+  }
+  const orderedTargets = problem.target_demands.filter((itemId) => scienceItemIds.has(itemId));
+  const remainingScience = [...scienceItemIds].filter((itemId) => !orderedTargets.includes(itemId)).sort();
+  return [...orderedTargets, ...remainingScience];
+}
+
+function defaultMilestoneId(problem: ProblemDto): string {
+  const options = scienceMilestoneOptions(problem);
+  return options.length ? options[options.length - 1] : '';
+}
+
+function isSciencePackId(itemId: string): boolean {
+  return itemId.includes('science-pack');
 }
 
 function validateEditableProblem(editable: EditableProblem): Notice | null {

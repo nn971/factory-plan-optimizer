@@ -142,12 +142,18 @@ class RecipeUnlock:
 class TechnologyPrototype:
     name: str
     prerequisites: Sequence[str] = ()
+    science_pack_ingredients: Sequence[str] = ()
     unlocks: Sequence[RecipeUnlock] = ()
     enabled: bool = True
     hidden: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "prerequisites", tuple(self.prerequisites))
+        object.__setattr__(
+            self,
+            "science_pack_ingredients",
+            tuple(self.science_pack_ingredients),
+        )
         object.__setattr__(self, "unlocks", tuple(self.unlocks))
 
     def to_json_value(self) -> dict[str, JsonValue]:
@@ -156,6 +162,7 @@ class TechnologyPrototype:
             "hidden": self.hidden,
             "name": self.name,
             "prerequisites": list(self.prerequisites),
+            "science_pack_ingredients": list(self.science_pack_ingredients),
             "unlocks": [unlock.to_json_value() for unlock in self.unlocks],
         }
 

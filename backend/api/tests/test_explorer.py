@@ -3,6 +3,7 @@ from __future__ import annotations
 from game_data_extractor.data_contracts import (
     FactoryDataPackage,
     Item,
+    MilestoneRecipeSet,
     Recipe,
     RecipeTerm,
     UnlockCondition,
@@ -51,7 +52,7 @@ def test_explorer_mapper_derives_relationships_io_and_sorting() -> None:
                 ingredients=[
                     RecipeTerm(type="item", name="a-input", amount=1.5),
                     RecipeTerm(
-                        type="fluid",
+                        type="unknown",
                         name="fluid-input",
                         amount=0.5,
                         minimum_temperature=MINIMUM_TEMPERATURE,
@@ -81,6 +82,7 @@ def test_explorer_mapper_derives_relationships_io_and_sorting() -> None:
         final_demands={},
         external_supplies={},
         unmet_demand_penalty_rate=1000.0,
+        milestones=[MilestoneRecipeSet("automation-science-pack", ("z-consume",))],
     )
 
     explorer = explorer_from_package(package, package_id="pkg-1")
@@ -89,6 +91,8 @@ def test_explorer_mapper_derives_relationships_io_and_sorting() -> None:
     assert explorer.overview.item_count == ITEM_COUNT
     assert explorer.overview.fluid_count == FLUID_COUNT
     assert explorer.overview.recipe_count == RECIPE_COUNT
+    assert explorer.milestones[0].item_id == "automation-science-pack"
+    assert explorer.milestones[0].recipe_ids == ["z-consume"]
     assert explorer.overview.item_categories == ["a", "b"]
     assert [item.id for item in explorer.items] == [
         "a-input",

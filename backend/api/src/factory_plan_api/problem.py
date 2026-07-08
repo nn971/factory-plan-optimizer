@@ -8,7 +8,13 @@ from game_data_extractor.data_contracts import (
     ItemKind,
 )
 
-from factory_plan_api.dtos import ExternalInputDto, ItemDto, ProblemDto, SolveResultDto
+from factory_plan_api.dtos import (
+    ExternalInputDto,
+    ItemDto,
+    MilestoneDto,
+    ProblemDto,
+    SolveResultDto,
+)
 
 if TYPE_CHECKING:
     from factory_plan_optimizer.optimizer.global_recipe_lp import GlobalRecipeLpResult
@@ -21,9 +27,15 @@ DEFAULT_EXTERNAL_INPUT_CAPACITY = 100_000.0
 FREE_RESOURCE_DEFAULTS = frozenset({"water"})
 SCIENCE_TARGET_DEMANDS = [
     "automation-science-pack",
-    "logistic-science-pack",
     "py-science-pack-1",
+    "logistic-science-pack",
+    "py-science-pack-2",
+    "military-science-pack",
+    "chemical-science-pack",
 ]
+SCIENCE_TARGET_ORDER = {
+    item_id: index for index, item_id in enumerate(SCIENCE_TARGET_DEMANDS)
+}
 
 
 def problem_from_package(
@@ -46,6 +58,7 @@ def problem_from_package(
         external_inputs=raw_input_candidates,
         raw_input_candidates=raw_input_candidates,
         recipe_ids=[recipe.id for recipe in package.recipes],
+        milestones=_milestone_dtos(package),
     )
 
 
@@ -116,9 +129,15 @@ def _raw_input_candidate(
 
 
 def _target_demands(package: FactoryDataPackage) -> list[str]:
-    item_ids = {item.id for item in package.items}
-    if all(target_id in item_ids for target_id in SCIENCE_TARGET_DEMANDS):
-        return list(SCIENCE_TARGET_DEMANDS)
+    science_pack_ids = [item.id for item in package.items if "science-pack" in item.id]
+    if science_pack_ids:
+        return sorted(
+            science_pack_ids,
+            key=lambda item_id: (
+                SCIENCE_TARGET_ORDER.get(item_id, len(SCIENCE_TARGET_ORDER)),
+                item_id,
+            ),
+        )
     return list(package.final_demands)
 
 
@@ -160,7 +179,23 @@ def package_with_edits(
         final_demands=demands,
         external_supplies=supplies,
         unmet_demand_penalty_rate=package.unmet_demand_penalty_rate,
+        milestones=package.milestones,
     )
+
+
+def _milestone_dtos(package: FactoryDataPackage) -> list[MilestoneDto]:
+    recipe_ids = {recipe.id for recipe in package.recipes}
+    return [
+        MilestoneDto(
+            item_id=milestone.milestone,
+            recipe_ids=[
+                recipe_id
+                for recipe_id in milestone.recipe_names
+                if recipe_id in recipe_ids
+            ],
+        )
+        for milestone in package.milestones
+    ]
 
 
 def result_to_dto(result: GlobalRecipeLpResult) -> SolveResultDto:

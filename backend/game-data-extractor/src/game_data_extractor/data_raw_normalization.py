@@ -300,6 +300,9 @@ def _parse_technologies(
                         prototype.get("prerequisites", []),
                         "technology prerequisites",
                     ),
+                    science_pack_ingredients=_technology_science_pack_ingredients(
+                        prototype,
+                    ),
                     unlocks=[
                         RecipeUnlock(
                             technology_name=tech_name,
@@ -322,6 +325,34 @@ def _parse_technologies(
                 _diagnostic("error", "malformed-prototype", str(error), name)
             )
     return technologies
+
+
+def _technology_science_pack_ingredients(
+    prototype: dict[str, JsonValue],
+) -> tuple[str, ...]:
+    unit = prototype.get("unit")
+    if unit is None:
+        return ()
+    unit_mapping = _mapping(unit, "technology unit")
+    ingredients = _list(
+        unit_mapping.get("ingredients", []),
+        "technology unit ingredients",
+    )
+    return tuple(
+        sorted(
+            {_technology_science_pack_name(ingredient) for ingredient in ingredients}
+        )
+    )
+
+
+def _technology_science_pack_name(value: JsonValue) -> str:
+    if isinstance(value, list) and value and isinstance(value[0], str):
+        return value[0]
+    if isinstance(value, dict) and isinstance(value.get("name"), str):
+        return cast("str", value["name"])
+    context = "technology unit ingredient"
+    message = "expected science pack term"
+    raise DatasetParseError(context, message)
 
 
 def _parse_resources(

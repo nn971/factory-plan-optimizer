@@ -219,6 +219,21 @@ button:disabled {
   gap: 0.5rem;
 }
 
+.milestone-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, 22rem);
+  gap: 1rem;
+  align-items: end;
+  margin-bottom: 1rem;
+  background:
+    radial-gradient(circle at 96% 18%, rgba(65, 119, 82, 0.14), transparent 14rem),
+    white;
+}
+
+.milestone-panel h2 {
+  margin: 0.1rem 0;
+}
+
 .explorer-layout {
   display: grid;
   grid-template-columns: minmax(18rem, 0.82fr) minmax(0, 1.35fr);
@@ -469,6 +484,24 @@ select {
   border-top: 1px solid rgba(90, 59, 30, 0.11);
 }
 
+.target-row.active {
+  margin-inline: -0.45rem;
+  padding-inline: 0.45rem;
+  border-radius: 14px;
+  background: rgba(65, 119, 82, 0.1);
+}
+
+.selected-milestone-label {
+  display: inline-block;
+  margin-left: 0.45rem;
+  color: #417752;
+  font-size: 0.74rem;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 .target-row span {
   display: grid;
   gap: 0.15rem;
@@ -504,7 +537,7 @@ select {
 
 .control-strip {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 9rem auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.75rem;
   align-items: end;
   margin: 0.75rem 0;

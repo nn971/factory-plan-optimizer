@@ -7,6 +7,11 @@ from json import JSONDecodeError
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, NoReturn, cast
 
+from game_data_extractor.data_contracts.provenance_models import (
+    ImportDiagnostic,
+    MilestoneRecipeSet,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
@@ -157,6 +162,7 @@ class FactoryDataPackage:
     final_demands: Mapping[str, float]
     external_supplies: Mapping[str, ExternalSupply]
     unmet_demand_penalty_rate: float
+    milestones: Sequence[MilestoneRecipeSet] = ()
 
     def __post_init__(self) -> None:
         """Freeze sequence and mapping fields behind immutable containers."""
@@ -172,6 +178,7 @@ class FactoryDataPackage:
             "external_supplies",
             MappingProxyType(dict(self.external_supplies)),
         )
+        object.__setattr__(self, "milestones", tuple(self.milestones))
 
     @classmethod
     def from_json(cls, text: str) -> FactoryDataPackage:
@@ -187,6 +194,7 @@ class FactoryDataPackage:
             },
             "final_demands": dict(self.final_demands),
             "items": [item.to_json_value() for item in self.items],
+            "milestones": [milestone.to_json_value() for milestone in self.milestones],
             "recipes": [recipe.to_json_value() for recipe in self.recipes],
             "schema_version": self.schema_version,
             "unmet_demand_penalty_rate": self.unmet_demand_penalty_rate,
@@ -201,6 +209,7 @@ _PACKAGE_KEYS = frozenset(
     {
         "schema_version",
         "items",
+        "milestones",
         "recipes",
         "final_demands",
         "external_supplies",
@@ -276,6 +285,7 @@ def load_factory_data_package(text: str) -> FactoryDataPackage:
         ),
         external_supplies=_external_supplies(mapping, set(item_kinds)),
         unmet_demand_penalty_rate=unmet_demand_penalty_rate,
+        milestones=_milestones(mapping),
     )
 
 
@@ -511,6 +521,56 @@ def _external_supplies(
             capacity=capacity,
         )
     return result
+
+
+def _milestones(mapping: JsonObject) -> tuple[MilestoneRecipeSet, ...]:
+    result: list[MilestoneRecipeSet] = []
+    milestone_values = mapping.get("milestones", [])
+    if not isinstance(milestone_values, list):
+        _raise_parse_error("milestones", "expected JSON array")
+    for index, value in enumerate(milestone_values):
+        context = f"milestones[{index}]"
+        milestone_mapping = _as_mapping(value, context)
+        milestone = _string(milestone_mapping, "milestone")
+        recipe_names = tuple(_strings(milestone_mapping, "recipe_names"))
+        diagnostics = tuple(
+            _diagnostic(diagnostic, f"{context}.diagnostics")
+            for diagnostic in _array(milestone_mapping, "diagnostics")
+        )
+        result.append(
+            MilestoneRecipeSet(
+                milestone=milestone,
+                recipe_names=recipe_names,
+                diagnostics=diagnostics,
+            )
+        )
+    return tuple(result)
+
+
+def _strings(mapping: JsonObject, key: str) -> list[str]:
+    values = _array(mapping, key)
+    result: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            _raise_parse_error(key, "expected string array")
+        result.append(value)
+    return result
+
+
+def _diagnostic(value: object, context: str) -> ImportDiagnostic:
+    mapping = _as_mapping(value, context)
+    severity = _string(mapping, "severity")
+    if severity not in ("info", "warning", "error"):
+        _raise_parse_error(f"{context}.severity", "expected info, warning, or error")
+    subject = mapping.get("subject")
+    if subject is not None and not isinstance(subject, str):
+        _raise_parse_error(f"{context}.subject", "expected string or null")
+    return ImportDiagnostic(
+        severity=cast("Literal['info', 'warning', 'error']", severity),
+        code=_string(mapping, "code"),
+        message=_string(mapping, "message"),
+        subject=subject,
+    )
 
 
 def _nonnegative_number_map(

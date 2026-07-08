@@ -23,12 +23,13 @@ type ExplorerPanelProps = {
   explorer: ExplorerResponseDto | null;
   loading: boolean;
   stale: boolean;
+  milestoneItemId: string;
   selection: ExplorerSelection;
   onSelect: (selection: ExplorerSelection) => void;
   onRefresh: () => void;
 };
 
-export function ExplorerPanel({ explorer, loading, stale, selection, onSelect, onRefresh }: ExplorerPanelProps) {
+export function ExplorerPanel({ explorer, loading, stale, milestoneItemId, selection, onSelect, onRefresh }: ExplorerPanelProps) {
   const [itemSearch, setItemSearch] = useState('');
   const [recipeSearch, setRecipeSearch] = useState('');
   const [kindFilter, setKindFilter] = useState<ExplorerKindFilter>('all');
@@ -48,12 +49,21 @@ export function ExplorerPanel({ explorer, loading, stale, selection, onSelect, o
     () => filterExplorerItems(explorer?.items ?? [], itemSearch, kindFilter, itemCategory),
     [explorer, itemCategory, itemSearch, kindFilter],
   );
+  const reachableRecipeIds = useMemo(() => {
+    if (!explorer || !milestoneItemId) return null;
+    const milestone = explorer.milestones.find((entry) => entry.item_id === milestoneItemId);
+    return milestone ? new Set(milestone.recipe_ids) : null;
+  }, [explorer, milestoneItemId]);
   const visibleRecipes = useMemo(
-    () => filterExplorerRecipes(explorer?.recipes ?? [], recipeSearch, recipeCategory),
-    [explorer, recipeCategory, recipeSearch],
+    () => filterExplorerRecipes(explorer?.recipes ?? [], recipeSearch, recipeCategory)
+      .filter((recipe) => reachableRecipeIds == null || reachableRecipeIds.has(recipe.id)),
+    [explorer, reachableRecipeIds, recipeCategory, recipeSearch],
   );
   const item = selectedItem(selection, explorer);
-  const recipe = selectedRecipe(selection, explorer);
+  const selectedRecipeValue = selectedRecipe(selection, explorer);
+  const recipe = selectedRecipeValue && (reachableRecipeIds == null || reachableRecipeIds.has(selectedRecipeValue.id))
+    ? selectedRecipeValue
+    : undefined;
 
   return (
     <section className="explorer-shell">
@@ -68,6 +78,7 @@ export function ExplorerPanel({ explorer, loading, stale, selection, onSelect, o
         </div>
         <div className="explorer-status">
           {explorer && <span className="source-pill">package {explorer.package_id}</span>}
+          {milestoneItemId && <span className="source-pill tech">milestone {milestoneItemId}</span>}
           {stale && <span className="source-pill warning">needs refresh</span>}
           <button type="button" onClick={onRefresh} disabled={loading}>
             {loading ? 'Loading…' : 'Refresh explorer'}
@@ -116,7 +127,7 @@ export function ExplorerPanel({ explorer, loading, stale, selection, onSelect, o
             </div>
             <EntityList
               emptyLabel="No matching recipes."
-              rows={visibleRecipes.map((row) => ({ id: row.id, category: row.category, meta: 'recipe' }))}
+              rows={visibleRecipes.map((row) => ({ id: row.id, category: row.category, meta: unlockLabel(row.unlock_condition) }))}
               activeId={selection?.type === 'recipe' ? selection.id : null}
               onSelect={(id) => onSelect({ type: 'recipe', id })}
             />
@@ -129,7 +140,7 @@ export function ExplorerPanel({ explorer, loading, stale, selection, onSelect, o
           ) : explorer == null ? (
             <EmptyExplorer onRefresh={onRefresh} loading={loading} />
           ) : item ? (
-            <ItemDetail item={item} onSelectRecipe={(id) => onSelect({ type: 'recipe', id })} />
+            <ItemDetail item={item} reachableRecipeIds={reachableRecipeIds} onSelectRecipe={(id) => onSelect({ type: 'recipe', id })} />
           ) : recipe ? (
             <RecipeDetail recipe={recipe} onSelectItem={(id) => onSelect({ type: 'item', id })} />
           ) : (
@@ -246,13 +257,27 @@ function EmptyExplorer({ onRefresh, loading }: { onRefresh: () => void; loading:
   );
 }
 
-function ItemDetail({ item, onSelectRecipe }: { item: ExplorerItemDto; onSelectRecipe: (id: string) => void }) {
+function ItemDetail({
+  item,
+  reachableRecipeIds,
+  onSelectRecipe,
+}: {
+  item: ExplorerItemDto;
+  reachableRecipeIds: Set<string> | null;
+  onSelectRecipe: (id: string) => void;
+}) {
+  const producedBy = reachableRecipeIds == null
+    ? item.produced_by
+    : item.produced_by.filter((link) => reachableRecipeIds.has(link.id));
+  const consumedBy = reachableRecipeIds == null
+    ? item.consumed_by
+    : item.consumed_by.filter((link) => reachableRecipeIds.has(link.id));
   return (
     <article className="detail-card">
       <DetailHeading eyebrow={item.kind} title={item.id} category={item.category} unlock={item.unlock_condition} />
       <div className="detail-grid">
-        <LinkSection title="Produced by" links={item.produced_by} onSelect={onSelectRecipe} empty="No producing recipes." />
-        <LinkSection title="Consumed by" links={item.consumed_by} onSelect={onSelectRecipe} empty="No consuming recipes." />
+        <LinkSection title="Produced by" links={producedBy} onSelect={onSelectRecipe} empty="No reachable producing recipes." />
+        <LinkSection title="Consumed by" links={consumedBy} onSelect={onSelectRecipe} empty="No reachable consuming recipes." />
       </div>
     </article>
   );
@@ -337,7 +362,7 @@ function IOSection({ title, rows, onSelect, empty }: { title: string; rows: Expl
               <span>
                 <strong>{row.item_id}</strong>
                 <small>{row.category} · {row.kind}</small>
-                <TermSummaries terms={row.terms} />
+                <TermSummaries terms={row.terms} rowAmount={row.amount} />
               </span>
               <em>{formatNumber(row.amount)}</em>
             </button>
@@ -357,20 +382,25 @@ function SourceBadge({ recipe }: { recipe: ExplorerRecipeDto }) {
   return <span className="source-pill recipe-source">normal recipe {recipe.source_prototype_name ?? recipe.id}</span>;
 }
 
-function TermSummaries({ terms }: { terms: RecipeTermDto[] }) {
-  if (!terms.length) return null;
+function TermSummaries({ terms, rowAmount }: { terms: RecipeTermDto[]; rowAmount: number }) {
+  const labels = terms.flatMap((term, index) => {
+    const label = termLabel(term, index, terms.length, rowAmount);
+    return label ? [label] : [];
+  });
+  if (!labels.length) return null;
   return (
     <span className="term-stack">
-      {terms.map((term, index) => (
-        <span className="term-chip" key={`${term.name}-${term.type}-${index}`}>
-          {termLabel(term, index, terms.length)}
+      {labels.map((label, index) => (
+        <span className="term-chip" key={`${label}-${index}`}>
+          {label}
         </span>
       ))}
     </span>
   );
 }
 
-function termLabel(term: RecipeTermDto, index: number, termCount: number): string {
+function termLabel(term: RecipeTermDto, index: number, termCount: number, rowAmount: number): string | null {
+  if (isSimpleAmountTerm(term) && term.amount === rowAmount) return null;
   const parts: string[] = [];
   if (termCount > 1) parts.push(`term ${index + 1}`);
   if (term.amount != null) parts.push(`amount ${formatNumber(term.amount)}`);
@@ -386,14 +416,27 @@ function termLabel(term: RecipeTermDto, index: number, termCount: number): strin
   return parts.length ? parts.join(' · ') : `term ${index + 1}`;
 }
 
+function isSimpleAmountTerm(term: RecipeTermDto): boolean {
+  return term.amount != null
+    && term.amount_min == null
+    && term.amount_max == null
+    && term.probability == null
+    && term.catalyst_amount == null
+    && term.temperature == null
+    && term.minimum_temperature == null
+    && term.maximum_temperature == null
+    && term.fluidbox_index == null;
+}
+
 function UnlockBadge({ unlock }: { unlock: UnlockConditionDto }) {
-  if (unlock.type === 'technology') {
-    return <span className="source-pill tech">technology {unlock.id}</span>;
-  }
-  if (unlock.type === 'start-unlocked') {
-    return <span className="source-pill start">start-unlocked</span>;
-  }
-  return <span className="source-pill unknown">unlock unknown</span>;
+  const className = unlock.type === 'technology' ? 'tech' : unlock.type === 'start-unlocked' ? 'start' : 'unknown';
+  return <span className={`source-pill ${className}`}>{unlockLabel(unlock)}</span>;
+}
+
+function unlockLabel(unlock: UnlockConditionDto): string {
+  if (unlock.type === 'technology') return `technology ${unlock.id ?? 'unknown'}`;
+  if (unlock.type === 'start-unlocked') return 'start-unlocked';
+  return 'unlock unknown';
 }
 
 function Stat({ label, value }: { label: string; value: number }) {

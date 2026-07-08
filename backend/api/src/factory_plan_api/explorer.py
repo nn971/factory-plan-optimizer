@@ -9,6 +9,7 @@ from factory_plan_api.dtos import (
     ExplorerRecipeIODto,
     ExplorerRecipeLinkDto,
     ExplorerResponseDto,
+    MilestoneDto,
     RecipeTermDto,
     UnlockConditionDto,
 )
@@ -74,9 +75,25 @@ def explorer_from_package(
             item_categories=sorted({item.category for item in package.items}),
             recipe_categories=sorted({recipe.category for recipe in package.recipes}),
         ),
+        milestones=_milestone_dtos(package),
         items=items,
         recipes=recipes,
     )
+
+
+def _milestone_dtos(package: FactoryDataPackage) -> list[MilestoneDto]:
+    recipe_ids = {recipe.id for recipe in package.recipes}
+    return [
+        MilestoneDto(
+            item_id=milestone.milestone,
+            recipe_ids=[
+                recipe_id
+                for recipe_id in milestone.recipe_names
+                if recipe_id in recipe_ids
+            ],
+        )
+        for milestone in package.milestones
+    ]
 
 
 def _unlock_condition_dto(item_or_recipe: Item | Recipe) -> UnlockConditionDto:
@@ -100,7 +117,8 @@ def _recipe_io(
     side_terms = recipe.ingredients if sign < 0 else recipe.results
     terms_by_row: dict[tuple[str, RecipeTermType], list[RecipeTerm]] = {}
     for term in side_terms:
-        terms_by_row.setdefault((term.name, term.type), []).append(term)
+        item = item_by_id[term.name]
+        terms_by_row.setdefault((term.name, item.kind), []).append(term)
 
     row_keys: set[tuple[str, RecipeTermType]] = set()
     coefficient_amounts: dict[tuple[str, RecipeTermType], float] = {}

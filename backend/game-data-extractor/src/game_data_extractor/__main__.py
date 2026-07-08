@@ -17,6 +17,7 @@ from game_data_extractor.data_contracts import (
     calculate_milestone_recipe_set,
     dataset_to_factory_data_package,
     load_milestone_definitions,
+    technology_prerequisite_graph_json_value,
 )
 from game_data_extractor.data_raw_normalization import normalize_data_raw_dump
 from game_data_extractor.dump_data import (
@@ -45,6 +46,7 @@ commands:
             --output-dir PATH [--dry-run]
   normalize-dump --dump PATH --output PATH [--diagnostics PATH]
   export-milestone --dataset PATH --milestones PATH --milestone NAME [--output PATH]
+  export-technology-graph --dataset PATH --output PATH
   export-factory-data --dataset PATH --demand ITEM=RATE/min
         [--accepted-input ITEM ...] --output PATH
   report --dataset PATH [--settings PATH] [--milestone-output PATH]
@@ -52,6 +54,7 @@ commands:
 EXTRACT_SAVE_SETTINGS_CONTEXT: Final = "extract-save-settings"
 NORMALIZE_DUMP_CONTEXT: Final = "normalize-dump"
 EXPORT_MILESTONE_CONTEXT: Final = "export-milestone"
+EXPORT_TECHNOLOGY_GRAPH_CONTEXT: Final = "export-technology-graph"
 REPORT_CONTEXT: Final = "report"
 EXPORT_FACTORY_DATA_CONTEXT: Final = "export-factory-data"
 MAX_REPORTED_RECIPE_NAMES: Final = 10
@@ -82,6 +85,12 @@ class _ExportMilestoneArguments:
 
 
 @dataclass(frozen=True, slots=True)
+class _ExportTechnologyGraphArguments:
+    dataset_path: Path
+    output_path: Path
+
+
+@dataclass(frozen=True, slots=True)
 class _ReportArguments:
     dataset_path: Path
     settings_path: Path | None
@@ -96,7 +105,7 @@ class _ExportFactoryDataArguments:
     output_path: Path
 
 
-def main(arguments: Sequence[str] | None = None) -> int:  # noqa: PLR0911
+def main(arguments: Sequence[str] | None = None) -> int:  # noqa: C901, PLR0911
     parsed_arguments = sys.argv[1:] if arguments is None else list(arguments)
 
     if parsed_arguments in ([], ["-h"], ["--help"]):
@@ -121,6 +130,9 @@ def main(arguments: Sequence[str] | None = None) -> int:  # noqa: PLR0911
 
     if parsed_arguments[:1] == ["export-milestone"]:
         return _export_milestone(parsed_arguments[1:])
+
+    if parsed_arguments[:1] == ["export-technology-graph"]:
+        return _export_technology_graph(parsed_arguments[1:])
 
     if parsed_arguments[:1] == ["export-factory-data"]:
         return _export_factory_data(parsed_arguments[1:])
@@ -330,6 +342,32 @@ def _export_factory_data(arguments: Sequence[str]) -> int:
     sys.stdout.write(
         f"exported factory data: {len(package.items)} items, "
         f"{len(package.recipes)} recipes\n"
+    )
+    return 0
+
+
+def _export_technology_graph(arguments: Sequence[str]) -> int:
+    try:
+        parsed = _parse_export_technology_graph_arguments(arguments)
+        dataset = OptimizerRecipeDataset.from_json(
+            parsed.dataset_path.read_text(encoding="utf-8")
+        )
+        _write_json_output(
+            parsed.output_path,
+            _json_text(technology_prerequisite_graph_json_value(dataset)),
+        )
+    except FileNotFoundError as error:
+        sys.stderr.write(f"error: dataset file not found: {error.filename}\n")
+        return 1
+    except OSError as error:
+        sys.stderr.write(f"error: could not read or write technology graph: {error}\n")
+        return 1
+    except DatasetParseError as error:
+        sys.stderr.write(f"error: {error}\n")
+        return 2
+
+    sys.stdout.write(
+        f"exported technology graph: {len(dataset.technologies)} technologies\n"
     )
     return 0
 
@@ -751,6 +789,56 @@ def _parse_export_factory_data_arguments(
         dataset_path=dataset_path,
         demands_per_minute=demands,
         accepted_inputs=tuple(accepted_inputs) if explicit_accepted_inputs else None,
+        output_path=output_path,
+    )
+
+
+def _parse_export_technology_graph_arguments(
+    arguments: Sequence[str],
+) -> _ExportTechnologyGraphArguments:
+    dataset_path: Path | None = None
+    output_path: Path | None = None
+    index = 0
+    while index < len(arguments):
+        flag = arguments[index]
+        match flag:
+            case "--dataset":
+                dataset_path = Path(
+                    _flag_value(
+                        arguments,
+                        index,
+                        flag,
+                        context=EXPORT_TECHNOLOGY_GRAPH_CONTEXT,
+                    )
+                )
+                index += 2
+            case "--output":
+                output_path = Path(
+                    _flag_value(
+                        arguments,
+                        index,
+                        flag,
+                        context=EXPORT_TECHNOLOGY_GRAPH_CONTEXT,
+                    )
+                )
+                index += 2
+            case _:
+                raise DatasetParseError(
+                    EXPORT_TECHNOLOGY_GRAPH_CONTEXT,
+                    f"unknown flag {flag}",
+                )
+    if dataset_path is None:
+        raise DatasetParseError(
+            EXPORT_TECHNOLOGY_GRAPH_CONTEXT,
+            "--dataset is required",
+        )
+    if output_path is None:
+        raise DatasetParseError(
+            EXPORT_TECHNOLOGY_GRAPH_CONTEXT,
+            "--output is required",
+        )
+    return _ExportTechnologyGraphArguments(
+        dataset_path=dataset_path,
         output_path=output_path,
     )
 

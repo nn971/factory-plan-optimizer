@@ -144,6 +144,7 @@ def _technology_from_mapping(value: JsonValue) -> TechnologyPrototype:
     return TechnologyPrototype(
         name=_string(mapping, "name"),
         prerequisites=_strings(mapping, "prerequisites"),
+        science_pack_ingredients=_strings(mapping, "science_pack_ingredients"),
         unlocks=[
             _recipe_unlock_from_mapping(unlock) for unlock in _array(mapping, "unlocks")
         ],

@@ -55,7 +55,7 @@ def solve_planning_lp(
     accepted = list(accepted_early_pyanodon_inputs(dataset))
     policy = "early_pyanodon_raw_ores_water_stone_native_flora_kerogen"
     package = dataset_to_factory_data_package(dataset, demands_per_second, accepted)
-    result = solve_global_recipe_lp(package)
+    result = solve_global_recipe_lp(package, solve_mode="soft_diagnostics")
     steps: list[RelaxationStep] = []
     if not allow_relax_inputs or not _is_empty_or_unmet(
         result, demands_per_second, tolerance
@@ -65,7 +65,7 @@ def solve_planning_lp(
     for candidate in _relaxation_candidates(dataset, accepted, demands_per_second):
         accepted.append(candidate)
         package = dataset_to_factory_data_package(dataset, demands_per_second, accepted)
-        result = solve_global_recipe_lp(package)
+        result = solve_global_recipe_lp(package, solve_mode="soft_diagnostics")
         steps.append(
             RelaxationStep(
                 added_input=candidate,

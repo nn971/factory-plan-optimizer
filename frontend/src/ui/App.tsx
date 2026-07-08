@@ -3,13 +3,26 @@ import type { ReactNode } from 'react';
 
 import { ApiError, apiClient } from '../api/client';
 import type { ErrorDto, ProblemDto, SolveJobDto, SolveResultDto } from '../api/dtos';
-import { createEditableProblem, toSolveRequest, type EditableProblem } from '../domain/problemState';
+import {
+  createEditableProblem,
+  displayRateToItemsPerSecond,
+  findApprovedInputsMissingCapacity,
+  hasPositiveDemand,
+  problemLocalStorageKey,
+  toSolveRequest,
+  type DisplayRateUnits,
+  type EditableProblem,
+} from '../domain/problemState';
 
 type Notice = {
   title: string;
   message: string;
   details?: string;
   tone?: 'error' | 'info';
+};
+
+type SavedEditableProblem = Pick<EditableProblem, 'solveMode' | 'displayRateUnits' | 'demands' | 'externalInputs'> & {
+  version: 1;
 };
 
 export function App() {
@@ -19,9 +32,9 @@ export function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [loading, setLoading] = useState(false);
   const [demandSearch, setDemandSearch] = useState('');
-  const [showAllDemands, setShowAllDemands] = useState(false);
   const [inputSearch, setInputSearch] = useState('');
   const [showDisabledInputs, setShowDisabledInputs] = useState(false);
+  const [storageKey, setStorageKey] = useState<string | null>(null);
   const pollCancelRef = useRef(false);
   const pollAbortRef = useRef<AbortController | null>(null);
 
@@ -33,6 +46,16 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!editable || !storageKey) return;
+    const payload: SavedEditableProblem = { version: 1, ...editable };
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {
+      // Ignore quota/private-mode failures so editing remains usable.
+    }
+  }, [editable, storageKey]);
+
   async function loadProblem() {
     pollCancelRef.current = true;
     pollAbortRef.current?.abort();
@@ -41,7 +64,8 @@ export function App() {
     try {
       const loaded = await apiClient.getDefaultProblem();
       setProblem(loaded);
-      setEditable(createEditableProblem(loaded));
+      setEditable(createEditableProblemFromStorage(loaded));
+      setStorageKey(problemLocalStorageKey(loaded));
       setJob(null);
     } catch (error) {
       setNotice(toNotice(error, 'Could not load default problem'));
@@ -61,7 +85,8 @@ export function App() {
       const uploaded = await apiClient.uploadPackage(payload);
       const loaded = { ...uploaded.problem, package_id: uploaded.package_id };
       setProblem(loaded);
-      setEditable(createEditableProblem(loaded));
+      setEditable(createEditableProblemFromStorage(loaded));
+      setStorageKey(problemLocalStorageKey(loaded));
       setJob(null);
       setNotice({
         title: 'Package loaded',
@@ -77,6 +102,11 @@ export function App() {
 
   async function startSolve() {
     if (!editable) return;
+    const validationNotice = validateEditableProblem(editable);
+    if (validationNotice) {
+      setNotice(validationNotice);
+      return;
+    }
     pollCancelRef.current = false;
     pollAbortRef.current?.abort();
     setLoading(true);
@@ -133,6 +163,28 @@ export function App() {
     );
   }
 
+  function updateDisplayRateUnits(nextUnits: DisplayRateUnits) {
+    setEditable((current) => {
+      if (!current || current.displayRateUnits === nextUnits) return current;
+      return {
+        ...current,
+        displayRateUnits: nextUnits,
+        demands: Object.fromEntries(
+          Object.entries(current.demands).map(([itemId, value]) => {
+            const parsed = Number(value);
+            if (value.trim() === '' || !Number.isFinite(parsed) || parsed < 0) return [itemId, value];
+            const perSecond = displayRateToItemsPerSecond(parsed, current.displayRateUnits);
+            return [itemId, formatEditableRate(fromItemsPerSecond(perSecond, nextUnits))];
+          }),
+        ),
+      };
+    });
+  }
+
+  function updateSolveMode(solveMode: EditableProblem['solveMode']) {
+    setEditable((current) => (current ? { ...current, solveMode } : current));
+  }
+
   function updateExternalInput(
     itemId: string,
     patch: Partial<{ enabled: boolean; cost: string; capacity: string }>,
@@ -150,9 +202,12 @@ export function App() {
   }
 
   const itemNames = new Set(problem?.items.map((item) => item.id) ?? []);
+  const scenarioTitle = problem?.scenario_label ?? 'Scenario';
+  const scenarioId = problem?.scenario_id ?? 'default-scenario';
   const visibleDemands = Object.entries(editable?.demands ?? {}).filter(([itemId, amount]) => {
     const matchesSearch = itemId.toLowerCase().includes(demandSearch.toLowerCase());
-    return matchesSearch && (showAllDemands || Number(amount) > 0);
+    const isTarget = problem?.target_demands.includes(itemId) ?? true;
+    return matchesSearch && (isTarget || Number(amount) > 0);
   });
   const visibleExternalInputs = (editable?.externalInputs ?? []).filter((input) => {
     const matchesSearch = input.item_id.toLowerCase().includes(inputSearch.toLowerCase());
@@ -164,11 +219,15 @@ export function App() {
       <header className="hero">
         <div>
           <p className="eyebrow">Factory Plan Optimizer</p>
-          <h1>Minimal solver dashboard</h1>
+          <h1>{scenarioTitle}</h1>
           <p>
-            Edit demand and external supply assumptions, submit a solve job, and
-            inspect the returned summary.
+            Set target science rates, review the raw inputs the backend found, then run a
+            solve. Blank or zero target rates are not sent.
           </p>
+          <div className="scenario-meta">
+            <span>{scenarioId}</span>
+            <span>{problem?.package_id ?? 'default package'}</span>
+          </div>
         </div>
         <div className="hero-actions">
           <label className="file-picker">
@@ -189,32 +248,38 @@ export function App() {
       {notice && <NoticeBox notice={notice} />}
 
       <section className="grid two">
-        <Panel title="Demands" subtitle="Target output amounts by item.">
+        <Panel title="Target science rates" subtitle="Only positive target rates are sent to the solver.">
           {editable ? (
             <>
-              <div className="filters">
+              <div className="control-strip">
                 <input
                   type="search"
-                  placeholder="Search demands"
+                  placeholder="Search target packs"
                   value={demandSearch}
                   onChange={(event) => setDemandSearch(event.target.value)}
                 />
-                <label className="check inline">
-                  <input
-                    type="checkbox"
-                    checked={showAllDemands}
-                    onChange={(event) => setShowAllDemands(event.target.checked)}
-                  />{' '}
-                  Show zero demands
+                <label>
+                  Units
+                  <select
+                    value={editable.displayRateUnits}
+                    onChange={(event) => updateDisplayRateUnits(event.target.value as DisplayRateUnits)}
+                  >
+                    <option value="items_per_second">items/s</option>
+                    <option value="items_per_minute">items/min</option>
+                  </select>
                 </label>
               </div>
               {visibleDemands.map(([itemId, amount]) => (
-                <label className="row" key={itemId}>
-                  <span>{itemId}</span>
+                <label className="target-row" key={itemId}>
+                  <span>
+                    <strong>{friendlyItemName(itemId)}</strong>
+                    <small>{itemId}</small>
+                  </span>
                   <input
                     type="number"
                     min="0"
                     step="any"
+                    placeholder="0"
                     value={amount}
                     onChange={(event) => updateDemand(itemId, event.target.value)}
                   />
@@ -228,8 +293,8 @@ export function App() {
         </Panel>
 
         <Panel
-          title="External inputs"
-          subtitle="Allow raw purchases/sources, with cost and optional capacity."
+          title="Raw input review"
+          subtitle="Backend-computed candidates. Approve what may enter from outside the factory."
         >
           {editable ? (
             <>
@@ -259,8 +324,10 @@ export function App() {
                         updateExternalInput(input.item_id, { enabled: event.target.checked })
                       }
                     />{' '}
-                    {input.item_id}
+                    {friendlyItemName(input.item_id)}
                   </label>
+                  <span className="source-pill">{input.kind ?? 'unknown'}</span>
+                  <span className="source-pill">{sourceLabel(input.source)}</span>
                   {!itemNames.has(input.item_id) && <small>Not listed in item table</small>}
                   <label>
                     Cost
@@ -282,7 +349,7 @@ export function App() {
                       type="number"
                       min="0"
                       step="any"
-                      placeholder="unlimited"
+                      placeholder="required cap"
                       value={input.capacity}
                       onChange={(event) =>
                         updateExternalInput(input.item_id, {
@@ -302,13 +369,37 @@ export function App() {
       </section>
 
       <section className="actions">
+        <fieldset className="solve-mode">
+          <legend>Solve mode</legend>
+          <label className="check inline">
+            <input
+              type="radio"
+              name="solve-mode"
+              checked={editable?.solveMode === 'hard_demand'}
+              onChange={() => updateSolveMode('hard_demand')}
+              disabled={!editable || loading}
+            />
+            Hard demand
+          </label>
+          <label className="check inline">
+            <input
+              type="radio"
+              name="solve-mode"
+              checked={editable?.solveMode === 'soft_diagnostics'}
+              onChange={() => updateSolveMode('soft_diagnostics')}
+              disabled={!editable || loading}
+            />
+            Soft diagnostics
+          </label>
+          <p className="muted">Hard mode must meet the requested rates. Soft diagnostics can show unmet demand when a plan cannot fit.</p>
+        </fieldset>
         <button
           type="button"
           className="primary"
           disabled={!editable || loading}
           onClick={() => void startSolve()}
         >
-          Start solver
+          Solve scenario
         </button>
         {job && (
           <span>
@@ -328,6 +419,8 @@ export function App() {
           {job?.result ? <ResultView result={job.result} /> : <p>No result yet.</p>}
         </Panel>
       </section>
+
+      <MetadataDetails problem={problem} />
     </main>
   );
 }
@@ -349,8 +442,8 @@ function ResultView({ result }: { result: SolveResultDto }) {
         value={filter}
         onChange={(event) => setFilter(event.target.value)}
       />
-      <KeyValueTable title="Objective components" values={result.objective_components} filter={filter} />
       <KeyValueTable title="Recipe rates" values={result.recipe_rates} filter={filter} onlyNonzero />
+      <KeyValueTable title="Objective components" values={result.objective_components} filter={filter} />
       <KeyValueTable title="External supplies" values={result.external_supplies} filter={filter} onlyNonzero />
       <KeyValueTable title="Unmet demand" values={result.unmet_demand} filter={filter} onlyNonzero />
       <KeyValueTable title="Surplus" values={result.surplus} filter={filter} onlyNonzero />
@@ -362,6 +455,41 @@ function ResultView({ result }: { result: SolveResultDto }) {
         </details>
       )}
     </div>
+  );
+}
+
+function MetadataDetails({ problem }: { problem: ProblemDto | null }) {
+  const itemCount = Object.keys(problem?.item_metadata ?? {}).length;
+  const recipeCount = Object.keys(problem?.recipe_metadata ?? {}).length;
+  return (
+    <section className="panel metadata-panel">
+      <details>
+        <summary>Readonly metadata</summary>
+        <p className="muted">
+          Item and recipe metadata is shown here when the package provides it. This scenario currently has {itemCount} item metadata entries and {recipeCount} recipe metadata entries.
+        </p>
+        {itemCount > 0 && <MetadataTable title="Item metadata" values={problem?.item_metadata ?? {}} />}
+        {recipeCount > 0 && <MetadataTable title="Recipe metadata" values={problem?.recipe_metadata ?? {}} />}
+      </details>
+    </section>
+  );
+}
+
+function MetadataTable({ title, values }: { title: string; values: Record<string, Record<string, string>> }) {
+  return (
+    <section className="kv">
+      <h3>{title}</h3>
+      <table>
+        <tbody>
+          {Object.entries(values).map(([id, metadata]) => (
+            <tr key={id}>
+              <th>{id}</th>
+              <td>{Object.keys(metadata).length ? JSON.stringify(metadata) : 'No fields'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   );
 }
 
@@ -433,6 +561,174 @@ function NoticeBox({ notice }: { notice: Notice }) {
       )}
     </aside>
   );
+}
+
+function createEditableProblemFromStorage(problem: ProblemDto): EditableProblem {
+  const base = createEditableProblem(problem);
+  const saved = readSavedEditableProblem(problemLocalStorageKey(problem));
+  if (!saved) return base;
+
+  const savedInputs = new Map(saved.externalInputs.map((input) => [input.item_id, input]));
+  return {
+    ...base,
+    solveMode: saved.solveMode,
+    displayRateUnits: saved.displayRateUnits,
+    demands: Object.fromEntries(
+      Object.keys(base.demands).map((itemId) => [itemId, saved.demands[itemId] ?? base.demands[itemId]]),
+    ),
+    externalInputs: base.externalInputs.map((input) => {
+      const savedInput = savedInputs.get(input.item_id);
+      const savedCapacity = savedInput?.capacity;
+      return {
+        ...input,
+        enabled: savedInput?.enabled ?? input.enabled,
+        cost: savedInput?.cost ?? input.cost,
+        capacity:
+          savedCapacity != null && isValidRequiredNonnegativeNumber(savedCapacity)
+            ? savedCapacity
+            : input.capacity,
+      };
+    }),
+  };
+}
+
+function readSavedEditableProblem(key: string): SavedEditableProblem | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed)) return null;
+    if (
+      parsed.version !== 1 ||
+      (parsed.solveMode !== 'hard_demand' && parsed.solveMode !== 'soft_diagnostics') ||
+      (parsed.displayRateUnits !== 'items_per_second' && parsed.displayRateUnits !== 'items_per_minute') ||
+      !isRecord(parsed.demands) ||
+      !Array.isArray(parsed.externalInputs)
+    ) {
+      return null;
+    }
+    const demands = sanitizeStringRecord(parsed.demands);
+    const externalInputs = parsed.externalInputs.flatMap((input) => {
+      if (!isRecord(input) || typeof input.item_id !== 'string') return [];
+      return [{
+        item_id: input.item_id,
+        kind: sanitizeInputKind(input.kind),
+        enabled: typeof input.enabled === 'boolean' ? input.enabled : false,
+        cost: typeof input.cost === 'string' ? input.cost : '',
+        capacity: typeof input.capacity === 'string' ? input.capacity : '',
+        defaultApproved: typeof input.defaultApproved === 'boolean' ? input.defaultApproved : false,
+      }];
+    });
+    return {
+      version: 1,
+      solveMode: parsed.solveMode,
+      displayRateUnits: parsed.displayRateUnits,
+      demands,
+      externalInputs,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function sanitizeStringRecord(value: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, entry]) => {
+      if (typeof key !== 'string' || typeof entry !== 'string') return [];
+      return [[key, entry]];
+    }),
+  );
+}
+
+function sanitizeInputKind(value: unknown): 'item' | 'fluid' | 'unknown' {
+  return value === 'item' || value === 'fluid' || value === 'unknown' ? value : 'unknown';
+}
+
+function validateEditableProblem(editable: EditableProblem): Notice | null {
+  const invalidDemandIds = invalidNumberEntries(editable.demands);
+  if (invalidDemandIds.length > 0) {
+    return {
+      title: 'Check target rates',
+      message: `Target rates must be zero or a positive number. Fix: ${invalidDemandIds.join(', ')}.`,
+    };
+  }
+  if (!hasPositiveDemand(editable.demands)) {
+    return {
+      title: 'Add a target rate',
+      message: 'Enter a positive rate for at least one science pack before solving.',
+    };
+  }
+
+  const invalidCostIds = editable.externalInputs
+    .filter((input) => input.enabled && !isValidOptionalNonnegativeNumber(input.cost))
+    .map((input) => input.item_id)
+    .sort();
+  if (invalidCostIds.length > 0) {
+    return {
+      title: 'Check raw input costs',
+      message: `Approved raw inputs need zero or positive costs. Fix: ${invalidCostIds.join(', ')}.`,
+    };
+  }
+
+  const missingCapacityIds = findApprovedInputsMissingCapacity(editable.externalInputs);
+  if (missingCapacityIds.length > 0) {
+    return {
+      title: 'Check raw input caps',
+      message: `Approved raw inputs need a finite capacity before solving. Fix: ${missingCapacityIds.join(', ')}.`,
+    };
+  }
+  return null;
+}
+
+function invalidNumberEntries(values: Record<string, string>): string[] {
+  return Object.entries(values)
+    .filter(([, value]) => value.trim() !== '' && !isValidOptionalNonnegativeNumber(value))
+    .map(([itemId]) => itemId)
+    .sort();
+}
+
+function isValidOptionalNonnegativeNumber(value: string): boolean {
+  if (value.trim() === '') return true;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0;
+}
+
+function isValidRequiredNonnegativeNumber(value: string): boolean {
+  if (value.trim() === '') return false;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0;
+}
+
+function fromItemsPerSecond(value: number, units: DisplayRateUnits): number {
+  return units === 'items_per_minute' ? value * 60 : value;
+}
+
+function formatEditableRate(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(8)));
+}
+
+function friendlyItemName(itemId: string): string {
+  return itemId
+    .split('-')
+    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
+    .join(' ');
+}
+
+function sourceLabel(source: string | null | undefined): string {
+  switch (source) {
+    case 'package_external_supply':
+      return 'package supply';
+    case 'inferred_unproduced':
+      return 'inferred raw';
+    case 'inferred_fluid':
+      return 'inferred fluid';
+    default:
+      return 'candidate';
+  }
 }
 
 function toNotice(error: unknown, fallback: string): Notice {

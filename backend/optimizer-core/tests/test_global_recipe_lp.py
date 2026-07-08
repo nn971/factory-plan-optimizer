@@ -69,7 +69,22 @@ def test_objective_component_keys_are_always_reported() -> None:
     assert result.objective_components["flow_cost"] == 0.0
 
 
-def test_unmet_demand_when_no_production_or_supply_can_meet_demand() -> None:
+def test_hard_demand_is_default_and_reports_infeasible_without_supply() -> None:
+    result = solve_global_recipe_lp(
+        _package(
+            recipes=(),
+            external_supplies={},
+        ),
+    )
+
+    assert result.status == "infeasible"
+    assert result.objective_value is None
+    assert set(result.objective_components) == set(
+        global_recipe_lp.OBJECTIVE_COMPONENT_KEYS,
+    )
+
+
+def test_soft_diagnostics_reports_unmet_demand_without_supply() -> None:
     result = solve_global_recipe_lp(
         _package(
             recipes=(
@@ -81,11 +96,15 @@ def test_unmet_demand_when_no_production_or_supply_can_meet_demand() -> None:
             ),
             external_supplies={},
         ),
+        solve_mode="soft_diagnostics",
     )
 
     assert result.status == "optimal"
     assert result.unmet_demand["iron-plate"] == pytest.approx(10.0)
     assert result.objective_components["unmet_demand_penalty"] == pytest.approx(10000.0)
+    assert set(result.objective_components) == set(
+        global_recipe_lp.OBJECTIVE_COMPONENT_KEYS,
+    )
 
 
 def test_solver_unavailable_returns_structured_failure(

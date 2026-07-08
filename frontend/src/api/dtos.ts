@@ -2,21 +2,35 @@ export type ItemDto = { id: string; kind: 'item' | 'fluid' | 'unknown' };
 
 export type ExternalInputDto = {
   item_id: string;
+  kind?: 'item' | 'fluid' | 'unknown';
   enabled: boolean;
   cost: number;
   capacity: number | null;
+  source?: 'package_external_supply' | 'inferred_unproduced' | 'inferred_fluid' | null;
+  default_approved?: boolean;
 };
+
+export type SolveModeDto = 'hard_demand' | 'soft_diagnostics';
 
 export type ProblemDto = {
   package_id?: string | null;
+  scenario_id?: string | null;
+  scenario_label: string;
   items: ItemDto[];
   demands: Record<string, number>;
+  target_demands: string[];
+  rate_units: string;
+  default_solve_mode: SolveModeDto;
   external_inputs: ExternalInputDto[];
+  raw_input_candidates: ExternalInputDto[];
   recipe_ids: string[];
+  item_metadata: Record<string, Record<string, string>>;
+  recipe_metadata: Record<string, Record<string, string>>;
 };
 
 export type SolveRequestDto = {
   package_id?: string | null;
+  solve_mode: SolveModeDto;
   demands: Record<string, number>;
   external_inputs: ExternalInputDto[];
 };

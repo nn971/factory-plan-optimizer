@@ -64,8 +64,11 @@ Each recipe has a `coefficients` object mapping `item_id` to signed `a_ir`:
 - `external_supplies[item_id].capacity` is optional. `null` or omitted means no
   finite upper bound. A numeric value is an upper bound on supply rate.
 - `unmet_demand_penalty_rate` is the per-unit penalty for unmet final demand in
-  the initial global LP. The LP variable `unmet_demand_i` exists only for items
-  listed in `final_demands`; it is fixed to `0` for all other items.
+  the initial global LP's `soft_diagnostics` solve mode. In default
+  `hard_demand` mode, unmet demand is fixed to `0` so infeasible targets are
+  reported as structured non-optimal/infeasible results. In soft diagnostics,
+  `unmet_demand_i` may be positive only for items listed in `final_demands`; it
+  is fixed to `0` for all other items.
 
 ## Objective component names
 

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from factory_plan_api.app import app
 from factory_plan_api.default_data import (
     DEFAULT_DATA_PATH_ENV,
+    GENERATED_DEFAULT_RELATIVE_PATH,
     default_data_path,
     load_default_factory_data,
 )
@@ -23,7 +24,25 @@ HTTP_NOT_FOUND = 404
 HTTP_PAYLOAD_TOO_LARGE = 413
 HTTP_TOO_MANY_REQUESTS = 429
 HTTP_UNPROCESSABLE_ENTITY = 422
-EXPECTED_GEAR_RATE = 5.0
+DEFAULT_PACKAGE_ID = "default-first-3-science-v1"
+DEFAULT_SCENARIO_ID = "first-3-science-v1"
+DEFAULT_EXTERNAL_INPUT_CAPACITY = 100000.0
+SCIENCE_TARGETS = [
+    "automation-science-pack",
+    "logistic-science-pack",
+    "py-science-pack-1",
+]
+SCIENCE_TEST_RATE = 2.0
+UNPRODUCIBLE_WATER_DEMAND = 2.0
+UNPRODUCIBLE_WATER_PENALTY = 2000.0
+
+
+def _repository_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _curated_default_path() -> Path:
+    return _repository_root() / "data" / "packages" / "default.factory-data.json"
 
 
 def _water_package(demand: float = 2.0) -> dict[str, Any]:
@@ -39,6 +58,43 @@ def _water_package(demand: float = 2.0) -> dict[str, Any]:
         ],
         "final_demands": {"water": demand},
         "external_supplies": {},
+        "unmet_demand_penalty_rate": 1000.0,
+    }
+
+
+def _unproducible_water_package(demand: float = 2.0) -> dict[str, Any]:
+    package = _water_package(demand)
+    package["items"].append({"id": "stone", "kind": "item"})
+    package["recipes"] = [
+        {
+            "id": "filter-water",
+            "coefficients": {"stone": -1.0, "water": 1.0},
+            "production_cost": 0.0,
+        },
+    ]
+    return package
+
+
+def _coal_and_raw_coal_package() -> dict[str, Any]:
+    return {
+        "schema_version": "factory-data-v1",
+        "items": [
+            {"id": "raw-coal", "kind": "item"},
+            {"id": "coal", "kind": "item"},
+            {"id": "charcoal", "kind": "item"},
+        ],
+        "recipes": [
+            {
+                "id": "make-charcoal",
+                "coefficients": {"coal": -1.0, "charcoal": 1.0},
+                "production_cost": 0.0,
+            },
+        ],
+        "final_demands": {"charcoal": 1.0},
+        "external_supplies": {
+            "raw-coal": {"cost": 1.0, "capacity": 10.0},
+            "coal": {"cost": 2.0, "capacity": 10.0},
+        },
         "unmet_demand_penalty_rate": 1000.0,
     }
 
@@ -60,24 +116,40 @@ def test_default_problem_endpoint_shape() -> None:
 
     assert response.status_code == HTTP_OK
     body = response.json()
-    assert {"items", "demands", "external_inputs", "recipe_ids"} <= set(body)
-    assert {"id": "iron-gear", "kind": "item"} in body["items"]
-    assert body["demands"] == {"iron-gear": 5.0}
-    iron_ore_input = next(
-        option for option in body["external_inputs"] if option["item_id"] == "iron-ore"
-    )
-    assert iron_ore_input["enabled"] is True
-    assert iron_ore_input["cost"] == 1.0
+    assert {
+        "package_id",
+        "scenario_id",
+        "scenario_label",
+        "items",
+        "demands",
+        "target_demands",
+        "rate_units",
+        "default_solve_mode",
+        "external_inputs",
+        "raw_input_candidates",
+        "recipe_ids",
+    } <= set(body)
+    assert body["package_id"] == DEFAULT_PACKAGE_ID
+    assert body["scenario_id"] == DEFAULT_SCENARIO_ID
+    assert body["target_demands"] == SCIENCE_TARGETS
+    assert body["rate_units"] == "items/s"
+    assert body["default_solve_mode"] == "hard_demand"
+    assert body["item_metadata"] == {}
+    assert body["recipe_metadata"] == {}
+    assert {"id": "py-science-pack-1", "kind": "item"} in body["items"]
 
 
-def test_solve_job_eventually_succeeds_for_toy_request() -> None:
+def test_solve_job_eventually_succeeds_for_curated_science_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
     client = TestClient(app)
     problem = client.get("/api/problem/default").json()
 
     queued = client.post(
         "/api/solve",
         json={
-            "demands": problem["demands"],
+            "demands": {"automation-science-pack": SCIENCE_TEST_RATE},
             "external_inputs": problem["external_inputs"],
         },
     )
@@ -87,21 +159,66 @@ def test_solve_job_eventually_succeeds_for_toy_request() -> None:
     assert job["status"] == "queued"
     assert job["job_id"]
 
-    latest = None
-    for _ in range(50):
-        latest = client.get(f"/api/solve/{job['job_id']}")
-        assert latest.status_code == HTTP_OK
-        body = latest.json()
-        if body["status"] in {"succeeded", "failed"}:
-            break
-        time.sleep(0.05)
-
-    assert latest is not None
-    body = latest.json()
+    body = _wait_for_job(client, job["job_id"])
     assert body["status"] == "succeeded"
     assert body["result"]["solver_status"] == "optimal"
     assert body["result"]["objective_value"] is not None
-    assert body["result"]["recipe_rates"]["make-gear"] == EXPECTED_GEAR_RATE
+    assert (
+        body["result"]["recipe_rates"]["craft-automation-science-pack"]
+        == SCIENCE_TEST_RATE
+    )
+
+
+def test_default_raw_input_candidates_have_sources() -> None:
+    body = TestClient(app).get("/api/problem/default").json()
+    candidates = {
+        candidate["item_id"]: candidate for candidate in body["raw_input_candidates"]
+    }
+
+    assert "coal" not in candidates
+    assert {"iron-ore", "copper-ore", "raw-coal"} <= set(candidates)
+    for item_id in ["iron-ore", "copper-ore", "raw-coal"]:
+        candidate = candidates[item_id]
+        assert candidate["source"] == "package_external_supply"
+        assert candidate["enabled"] is True
+        assert candidate["default_approved"] is True
+        assert candidate["capacity"] == DEFAULT_EXTERNAL_INPUT_CAPACITY
+    if "water" in candidates:
+        assert candidates["water"]["cost"] == 0.0
+
+
+def test_default_raw_input_candidates_have_default_caps() -> None:
+    body = TestClient(app).get("/api/problem/default").json()
+
+    assert body["raw_input_candidates"]
+    assert all(
+        candidate["capacity"] == DEFAULT_EXTERNAL_INPUT_CAPACITY
+        for candidate in body["raw_input_candidates"]
+    )
+    assert any(
+        candidate["kind"] == "fluid" for candidate in body["raw_input_candidates"]
+    )
+
+
+def test_curated_default_package_solves_each_single_science_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
+    client = TestClient(app)
+    problem = client.get("/api/problem/default").json()
+
+    for target_id in SCIENCE_TARGETS:
+        queued = client.post(
+            "/api/solve",
+            json={
+                "demands": {target_id: 1.0},
+                "external_inputs": problem["external_inputs"],
+            },
+        )
+        assert queued.status_code == HTTP_OK
+        body = _wait_for_job(client, queued.json()["job_id"])
+        assert body["status"] == "succeeded"
+        assert body["result"]["unmet_demand"].get(target_id, 0.0) == 0.0
 
 
 def test_upload_valid_package_returns_package_id_and_problem(
@@ -115,8 +232,55 @@ def test_upload_valid_package_returns_package_id_and_problem(
     body = response.json()
     assert body["package_id"]
     assert body["problem"]["package_id"] == body["package_id"]
+    assert body["problem"]["scenario_id"] == body["package_id"]
     assert body["problem"]["demands"] == {"water": 2.0}
+    assert body["problem"]["target_demands"] == ["water"]
     assert body["problem"]["recipe_ids"] == ["pump-water"]
+
+
+def test_uploaded_problem_infers_unproduced_raw_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    package = _water_package()
+    package["items"] = [
+        {"id": "water", "kind": "fluid"},
+        {"id": "stone", "kind": "item"},
+    ]
+    response = TestClient(app).post("/api/problem/package", json=package)
+
+    assert response.status_code == HTTP_OK
+    body = response.json()["problem"]
+    candidates = {
+        candidate["item_id"]: candidate for candidate in body["raw_input_candidates"]
+    }
+    assert candidates["stone"] == {
+        "item_id": "stone",
+        "kind": "item",
+        "enabled": False,
+        "cost": 1.0,
+        "capacity": DEFAULT_EXTERNAL_INPUT_CAPACITY,
+        "source": "inferred_unproduced",
+        "default_approved": False,
+    }
+
+
+def test_uploaded_problem_excludes_coal_when_raw_coal_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    response = TestClient(app).post(
+        "/api/problem/package",
+        json=_coal_and_raw_coal_package(),
+    )
+
+    assert response.status_code == HTTP_OK
+    candidates = response.json()["problem"]["raw_input_candidates"]
+    candidate_ids = {candidate["item_id"] for candidate in candidates}
+    assert "raw-coal" in candidate_ids
+    assert "coal" not in candidate_ids
 
 
 def test_solve_uses_uploaded_package_not_default(
@@ -145,17 +309,117 @@ def test_solve_uses_uploaded_package_not_default(
     assert body["result"]["recipe_rates"] == {"pump-water": 3.0}
 
 
-def test_solve_without_package_id_remains_default_compatible() -> None:
+def test_solve_mode_defaults_to_hard_demand_for_uploaded_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
     client = TestClient(app)
+    uploaded = client.post(
+        "/api/problem/package",
+        json=_unproducible_water_package(demand=UNPRODUCIBLE_WATER_DEMAND),
+    ).json()
+
     queued = client.post(
         "/api/solve",
-        json={"demands": {"iron-gear": 1.0}, "external_inputs": []},
+        json={
+            "package_id": uploaded["package_id"],
+            "demands": {"water": UNPRODUCIBLE_WATER_DEMAND},
+            "external_inputs": [],
+        },
     )
 
     assert queued.status_code == HTTP_OK
     body = _wait_for_job(client, queued.json()["job_id"])
     assert body["status"] == "succeeded"
-    assert "make-gear" in body["result"]["recipe_rates"]
+    assert body["result"]["solver_status"] == "infeasible"
+    assert body["result"]["objective_value"] is None
+    assert body["result"]["unmet_demand"] == {}
+
+
+def test_solve_mode_soft_diagnostics_reports_unmet_demand(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    client = TestClient(app)
+    uploaded = client.post(
+        "/api/problem/package",
+        json=_unproducible_water_package(demand=UNPRODUCIBLE_WATER_DEMAND),
+    ).json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "package_id": uploaded["package_id"],
+            "solve_mode": "soft_diagnostics",
+            "demands": {"water": UNPRODUCIBLE_WATER_DEMAND},
+            "external_inputs": [],
+        },
+    )
+
+    assert queued.status_code == HTTP_OK
+    body = _wait_for_job(client, queued.json()["job_id"])
+    assert body["status"] == "succeeded"
+    assert body["result"]["solver_status"] == "optimal"
+    assert body["result"]["unmet_demand"]["water"] == UNPRODUCIBLE_WATER_DEMAND
+    assert (
+        body["result"]["objective_components"]["unmet_demand_penalty"]
+        == UNPRODUCIBLE_WATER_PENALTY
+    )
+
+
+def test_solve_rejects_invalid_solve_mode() -> None:
+    response = TestClient(app).post(
+        "/api/solve",
+        json={
+            "solve_mode": "diagnose",
+            "demands": {"automation-science-pack": 1.0},
+            "external_inputs": [],
+        },
+    )
+
+    assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
+
+
+def test_solve_without_package_id_remains_default_compatible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
+    client = TestClient(app)
+    problem = client.get("/api/problem/default").json()
+    queued = client.post(
+        "/api/solve",
+        json={
+            "demands": {"automation-science-pack": 1.0},
+            "external_inputs": problem["external_inputs"],
+        },
+    )
+
+    assert queued.status_code == HTTP_OK
+    body = _wait_for_job(client, queued.json()["job_id"])
+    assert body["status"] == "succeeded"
+    assert "craft-automation-science-pack" in body["result"]["recipe_rates"]
+
+
+def test_solve_accepts_default_package_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
+    client = TestClient(app)
+    problem = client.get("/api/problem/default").json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "package_id": problem["package_id"],
+            "demands": {"automation-science-pack": 1.0},
+            "external_inputs": problem["external_inputs"],
+        },
+    )
+
+    assert queued.status_code == HTTP_OK
+    body = _wait_for_job(client, queued.json()["job_id"])
+    assert body["status"] == "succeeded"
+    assert "craft-automation-science-pack" in body["result"]["recipe_rates"]
 
 
 def test_solve_unknown_package_id_returns_404() -> None:
@@ -219,7 +483,7 @@ def test_solve_returns_429_when_job_store_is_saturated(
 
     response = TestClient(app).post(
         "/api/solve",
-        json={"demands": {"iron-gear": 1.0}, "external_inputs": []},
+        json={"demands": {"automation-science-pack": 1.0}, "external_inputs": []},
     )
 
     assert response.status_code == HTTP_TOO_MANY_REQUESTS
@@ -234,10 +498,27 @@ def test_default_resolver_works_from_non_root_cwd(
 
     package = load_default_factory_data()
 
-    assert package.final_demands == {"iron-gear": 5.0}
+    assert set(SCIENCE_TARGETS) <= {item.id for item in package.items}
 
 
-def test_default_resolver_prefers_curated_root_package() -> None:
+def test_default_resolver_prefers_generated_real_package_when_present() -> None:
+    path = default_data_path()
+
+    assert path.as_posix().endswith(GENERATED_DEFAULT_RELATIVE_PATH.as_posix())
+
+
+def test_default_resolver_falls_back_to_curated_when_generated_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_exists = Path.exists
+
+    def exists_without_generated(path: Path) -> bool:
+        if path.as_posix().endswith(GENERATED_DEFAULT_RELATIVE_PATH.as_posix()):
+            return False
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", exists_without_generated)
+
     path = default_data_path()
 
     assert path.as_posix().endswith("data/packages/default.factory-data.json")
@@ -249,6 +530,8 @@ def test_default_resolver_falls_back_to_toy_when_curated_missing(
     original_exists = Path.exists
 
     def exists_without_curated(path: Path) -> bool:
+        if path.as_posix().endswith(GENERATED_DEFAULT_RELATIVE_PATH.as_posix()):
+            return False
         if path.as_posix().endswith("data/packages/default.factory-data.json"):
             return False
         return original_exists(path)
@@ -294,7 +577,7 @@ def test_default_resolver_uses_env_override(
 def test_solve_rejects_negative_demands() -> None:
     response = TestClient(app).post(
         "/api/solve",
-        json={"demands": {"iron-gear": -1.0}, "external_inputs": []},
+        json={"demands": {"automation-science-pack": -1.0}, "external_inputs": []},
     )
 
     assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
@@ -315,9 +598,9 @@ def test_solve_rejects_unknown_external_input_item_id() -> None:
     response = TestClient(app).post(
         "/api/solve",
         json={
-            "demands": {"iron-gear": 1.0},
+            "demands": {"automation-science-pack": 1.0},
             "external_inputs": [
-                {"item_id": "copper-ore", "enabled": True, "cost": 1.0},
+                {"item_id": "not-a-real-item-id", "enabled": True, "cost": 1.0},
             ],
         },
     )
@@ -330,7 +613,7 @@ def test_solve_rejects_duplicate_external_input_entries() -> None:
     response = TestClient(app).post(
         "/api/solve",
         json={
-            "demands": {"iron-gear": 1.0},
+            "demands": {"automation-science-pack": 1.0},
             "external_inputs": [
                 {"item_id": "iron-ore", "enabled": True, "cost": 1.0},
                 {"item_id": "iron-ore", "enabled": True, "cost": 2.0},

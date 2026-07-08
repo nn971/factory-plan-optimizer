@@ -32,6 +32,7 @@ type GlobalRecipeLpStatus = Literal[
     "non_optimal",
     "error",
 ]
+type GlobalRecipeLpSolveMode = Literal["hard_demand", "soft_diagnostics"]
 
 OBJECTIVE_COMPONENT_KEYS = (
     "raw_cost",
@@ -70,11 +71,17 @@ class _Solver(Protocol):
     def solve(self, model: ConcreteModel) -> object: ...
 
 
-def solve_global_recipe_lp(package: FactoryDataPackage) -> GlobalRecipeLpResult:
+def solve_global_recipe_lp(
+    package: FactoryDataPackage,
+    *,
+    solve_mode: GlobalRecipeLpSolveMode = "hard_demand",
+) -> GlobalRecipeLpResult:
     """Solve the minimal global recipe LP for a factory data package."""
-    model = _build_model(package)
+    model = _build_model(package, solve_mode=solve_mode)
     try:
         solver = _make_solver()
+        if (config := getattr(solver, "config", None)) is not None:
+            config.load_solution = False
         if not solver.available():
             return _failure("solver_unavailable", "HiGHS solver is not available")
         result = solver.solve(model)
@@ -94,6 +101,8 @@ def solve_global_recipe_lp(package: FactoryDataPackage) -> GlobalRecipeLpResult:
             "solver did not find an optimal solution",
             str(termination),
         )
+    if (load_vars := getattr(solver, "load_vars", None)) is not None:
+        load_vars()
 
     return _success(package, model)
 
@@ -102,7 +111,11 @@ def _make_solver() -> _Solver:
     return cast("_Solver", Highs())
 
 
-def _build_model(package: FactoryDataPackage) -> ConcreteModel:
+def _build_model(
+    package: FactoryDataPackage,
+    *,
+    solve_mode: GlobalRecipeLpSolveMode,
+) -> ConcreteModel:
     item_ids = [item.id for item in package.items]
     recipe_ids = [recipe.id for recipe in package.recipes]
     recipe_by_id = {recipe.id: recipe for recipe in package.recipes}
@@ -122,7 +135,7 @@ def _build_model(package: FactoryDataPackage) -> ConcreteModel:
             supply_var.fix(0.0)
         elif supply.capacity is not None:
             supply_var.setub(supply.capacity)
-        if item_id not in package.final_demands:
+        if item_id not in package.final_demands or solve_mode == "hard_demand":
             _var(model.unmet_demand[item_id]).fix(0.0)
 
     def balance_rule(_model: ConcreteModel, item_id: str) -> object:

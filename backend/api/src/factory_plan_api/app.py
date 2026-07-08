@@ -21,6 +21,8 @@ from factory_plan_api.dtos import (
 )
 from factory_plan_api.jobs import SolveJobStore, SolveJobStoreFullError
 from factory_plan_api.problem import (
+    DEFAULT_PACKAGE_ID,
+    DEFAULT_SCENARIO_ID,
     package_with_edits,
     problem_from_package,
     result_to_dto,
@@ -38,7 +40,11 @@ uploaded_packages: dict[str, FactoryDataPackage] = {}
 
 @app.get("/api/problem/default", response_model=ProblemDto)
 async def get_default_problem() -> ProblemDto:
-    return problem_from_package(load_default_factory_data())
+    return problem_from_package(
+        load_default_factory_data(),
+        package_id=DEFAULT_PACKAGE_ID,
+        scenario_id=DEFAULT_SCENARIO_ID,
+    )
 
 
 @app.post("/api/problem/package", response_model=ProblemPackageDto)
@@ -80,7 +86,9 @@ async def post_solve(request: SolveRequestDto) -> SolveQueuedDto:
     package = _package_from_request(request)
 
     def solve() -> SolveResultDto:
-        return result_to_dto(solve_global_recipe_lp(package))
+        return result_to_dto(
+            solve_global_recipe_lp(package, solve_mode=request.solve_mode),
+        )
 
     try:
         return job_store.submit(solve)
@@ -109,7 +117,7 @@ def _package_from_request(request: SolveRequestDto) -> FactoryDataPackage:
 
 
 def _base_package_from_request(request: SolveRequestDto) -> FactoryDataPackage:
-    if request.package_id is None:
+    if request.package_id is None or request.package_id == DEFAULT_PACKAGE_ID:
         return load_default_factory_data()
     package = uploaded_packages.get(request.package_id)
     if package is None:

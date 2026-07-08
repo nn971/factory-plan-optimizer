@@ -18,8 +18,9 @@ sum_r a_ir * x_r + external_supply_i = final_demand_i
 
 The first optimizer model consumes a canonical `FactoryDataPackage` and ignores
 all logistics structure. It chooses continuous recipe rates and external supply
-rates that satisfy final demand as cheaply as possible, allowing explicit unmet
-demand and surplus variables for diagnostics.
+rates that satisfy final demand as cheaply as possible. The model supports a
+default hard-demand solve mode plus an optional soft diagnostics mode with
+explicit unmet-demand variables.
 
 ### Variables
 
@@ -36,7 +37,7 @@ external_supply_i >= 0
 surplus_i >= 0
 ```
 
-For each demanded final item `i`:
+For each demanded final item `i` in soft diagnostics mode:
 
 ```text
 unmet_demand_i >= 0
@@ -48,8 +49,10 @@ If an external supply has capacity `capacity_i`, then:
 external_supply_i <= capacity_i
 ```
 
-Items without an external supply entry have `external_supply_i = 0`. Items not
-listed in `final_demands` have `unmet_demand_i = 0`.
+Items without an external supply entry have `external_supply_i = 0`. In hard
+demand mode, all `unmet_demand_i` variables are fixed to `0`, including demanded
+items. In soft diagnostics mode, items not listed in `final_demands` have
+`unmet_demand_i = 0` while demanded items may use unmet demand with a penalty.
 
 ### Balance
 
@@ -60,8 +63,10 @@ sum_r a_ir * x_r + external_supply_i + unmet_demand_i - surplus_i = final_demand
 ```
 
 Missing final demand is treated as `0`, and `unmet_demand_i` is fixed to `0` for
-those non-demand items. Surplus disposal is allowed in v1 by the nonnegative
-`surplus_i` variable with zero disposal cost.
+those non-demand items. In hard demand mode, demanded items also have
+`unmet_demand_i = 0`, so infeasible targets produce structured non-optimal or
+infeasible results instead of an optimal result with shortage. Surplus disposal
+is allowed in v1 by the nonnegative `surplus_i` variable with zero disposal cost.
 
 ### Objective
 

@@ -12,17 +12,35 @@ class ItemDto(BaseModel):
 
 class ExternalInputDto(BaseModel):
     item_id: str
+    kind: Literal["item", "fluid", "unknown"] = "unknown"
     enabled: bool = False
     cost: float = Field(ge=0.0)
     capacity: float | None = Field(default=None, ge=0.0)
+    source: (
+        Literal[
+            "package_external_supply",
+            "inferred_unproduced",
+            "inferred_fluid",
+        ]
+        | None
+    ) = None
+    default_approved: bool = False
 
 
 class ProblemDto(BaseModel):
     package_id: str | None = None
+    scenario_id: str | None = None
+    scenario_label: str = "Factory planning scenario"
     items: list[ItemDto]
     demands: dict[str, float] = Field(default_factory=dict)
+    target_demands: list[str] = Field(default_factory=list)
+    rate_units: str = "items/s"
+    default_solve_mode: Literal["hard_demand", "soft_diagnostics"] = "hard_demand"
     external_inputs: list[ExternalInputDto]
+    raw_input_candidates: list[ExternalInputDto] = Field(default_factory=list)
     recipe_ids: list[str] = Field(default_factory=list)
+    item_metadata: dict[str, dict[str, str]] = Field(default_factory=dict)
+    recipe_metadata: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class ProblemPackageDto(BaseModel):
@@ -32,6 +50,7 @@ class ProblemPackageDto(BaseModel):
 
 class SolveRequestDto(BaseModel):
     package_id: str | None = None
+    solve_mode: Literal["hard_demand", "soft_diagnostics"] = "hard_demand"
     demands: dict[str, float] = Field(default_factory=dict)
     external_inputs: list[ExternalInputDto] = Field(default_factory=list)
 

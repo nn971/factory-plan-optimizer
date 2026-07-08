@@ -1,5 +1,52 @@
 export type ItemDto = { id: string; kind: 'item' | 'fluid' | 'unknown' };
 
+export type UnlockConditionDto = {
+  type: 'technology' | 'start-unlocked' | 'unknown';
+  id: string | null;
+};
+
+export type ExplorerOverviewDto = {
+  item_count: number;
+  fluid_count: number;
+  recipe_count: number;
+  item_categories: string[];
+  recipe_categories: string[];
+};
+
+export type ExplorerRecipeLinkDto = { id: string; category: string };
+
+export type ExplorerItemDto = {
+  id: string;
+  kind: 'item' | 'fluid' | 'unknown';
+  category: string;
+  unlock_condition: UnlockConditionDto;
+  produced_by: ExplorerRecipeLinkDto[];
+  consumed_by: ExplorerRecipeLinkDto[];
+};
+
+export type ExplorerRecipeIODto = {
+  item_id: string;
+  kind: 'item' | 'fluid' | 'unknown';
+  category: string;
+  amount: number;
+};
+
+export type ExplorerRecipeDto = {
+  id: string;
+  category: string;
+  unlock_condition: UnlockConditionDto;
+  production_cost: number;
+  inputs: ExplorerRecipeIODto[];
+  outputs: ExplorerRecipeIODto[];
+};
+
+export type ExplorerResponseDto = {
+  package_id: string;
+  overview: ExplorerOverviewDto;
+  items: ExplorerItemDto[];
+  recipes: ExplorerRecipeDto[];
+};
+
 export type ExternalInputDto = {
   item_id: string;
   kind?: 'item' | 'fluid' | 'unknown';

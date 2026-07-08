@@ -7,6 +7,8 @@ from game_data_extractor.data_contracts.factory_data import (
     Item,
     ItemKind,
     Recipe,
+    UnlockCondition,
+    UnlockConditionType,
     load_factory_data_package,
 )
 from game_data_extractor.data_contracts.milestones import (
@@ -73,6 +75,8 @@ __all__ = [
     "SaveSettingsProvenance",
     "StartupSetting",
     "TechnologyPrototype",
+    "UnlockCondition",
+    "UnlockConditionType",
     "accepted_early_pyanodon_inputs",
     "calculate_milestone_recipe_set",
     "dataset_to_factory_data_package",

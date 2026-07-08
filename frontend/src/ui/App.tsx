@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { ApiError, apiClient } from '../api/client';
-import type { ErrorDto, ProblemDto, SolveJobDto, SolveResultDto } from '../api/dtos';
+import type { ErrorDto, ExplorerResponseDto, ProblemDto, SolveJobDto, SolveResultDto } from '../api/dtos';
+import {
+  selectionExists,
+  type ExplorerSelection,
+} from '../domain/explorerState';
+import { ExplorerPanel } from './ExplorerPanel';
 import {
   createEditableProblem,
   displayRateToItemsPerSecond,
@@ -21,6 +26,8 @@ type Notice = {
   tone?: 'error' | 'info';
 };
 
+type AppTab = 'solver' | 'explorer';
+
 type SavedEditableProblem = Pick<EditableProblem, 'solveMode' | 'displayRateUnits' | 'demands' | 'externalInputs'> & {
   version: 1;
 };
@@ -31,12 +38,19 @@ export function App() {
   const [job, setJob] = useState<SolveJobDto | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<AppTab>('solver');
+  const [explorer, setExplorer] = useState<ExplorerResponseDto | null>(null);
+  const [explorerLoading, setExplorerLoading] = useState(false);
+  const [explorerStale, setExplorerStale] = useState(true);
+  const [explorerAutoLoadBlocked, setExplorerAutoLoadBlocked] = useState(false);
+  const [explorerSelection, setExplorerSelection] = useState<ExplorerSelection>(null);
   const [demandSearch, setDemandSearch] = useState('');
   const [inputSearch, setInputSearch] = useState('');
   const [showDisabledInputs, setShowDisabledInputs] = useState(false);
   const [storageKey, setStorageKey] = useState<string | null>(null);
   const pollCancelRef = useRef(false);
   const pollAbortRef = useRef<AbortController | null>(null);
+  const explorerRequestTokenRef = useRef(0);
 
   useEffect(() => {
     void loadProblem();
@@ -45,6 +59,12 @@ export function App() {
       pollAbortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'explorer' && (!explorer || explorerStale) && !explorerLoading && !explorerAutoLoadBlocked) {
+      void loadExplorer();
+    }
+  }, [activeTab, explorer, explorerAutoLoadBlocked, explorerLoading, explorerStale]);
 
   useEffect(() => {
     if (!editable || !storageKey) return;
@@ -67,6 +87,7 @@ export function App() {
       setEditable(createEditableProblemFromStorage(loaded));
       setStorageKey(problemLocalStorageKey(loaded));
       setJob(null);
+      afterProblemDataChanged();
     } catch (error) {
       setNotice(toNotice(error, 'Could not load default problem'));
     } finally {
@@ -88,6 +109,7 @@ export function App() {
       setEditable(createEditableProblemFromStorage(loaded));
       setStorageKey(problemLocalStorageKey(loaded));
       setJob(null);
+      afterProblemDataChanged();
       setNotice({
         title: 'Package loaded',
         message: `${file.name} is now the active problem data.`,
@@ -126,6 +148,42 @@ export function App() {
     } finally {
       if (!pollCancelRef.current) setLoading(false);
     }
+  }
+
+  async function loadExplorer() {
+    const requestToken = explorerRequestTokenRef.current + 1;
+    explorerRequestTokenRef.current = requestToken;
+    setExplorerAutoLoadBlocked(false);
+    setExplorerLoading(true);
+    try {
+      const loaded = await apiClient.getExplorer();
+      if (explorerRequestTokenRef.current !== requestToken) return;
+      setExplorer(loaded);
+      setExplorerStale(false);
+      setExplorerSelection((current) => (selectionExists(current, loaded) ? current : null));
+    } catch (error) {
+      if (explorerRequestTokenRef.current !== requestToken) return;
+      setExplorerAutoLoadBlocked(true);
+      setNotice(toNotice(error, 'Could not load explorer'));
+    } finally {
+      if (explorerRequestTokenRef.current === requestToken) {
+        setExplorerLoading(false);
+      }
+    }
+  }
+
+  function afterProblemDataChanged() {
+    explorerRequestTokenRef.current += 1;
+    setExplorerLoading(false);
+    setExplorerAutoLoadBlocked(false);
+    setExplorerStale(true);
+    if (activeTab === 'explorer') {
+      void loadExplorer();
+    }
+  }
+
+  function switchTab(tab: AppTab) {
+    setActiveTab(tab);
   }
 
   async function pollJob(jobId: string) {
@@ -247,180 +305,212 @@ export function App() {
 
       {notice && <NoticeBox notice={notice} />}
 
-      <section className="grid two">
-        <Panel title="Target science rates" subtitle="Only positive target rates are sent to the solver.">
-          {editable ? (
-            <>
-              <div className="control-strip">
-                <input
-                  type="search"
-                  placeholder="Search target packs"
-                  value={demandSearch}
-                  onChange={(event) => setDemandSearch(event.target.value)}
-                />
-                <label>
-                  Units
-                  <select
-                    value={editable.displayRateUnits}
-                    onChange={(event) => updateDisplayRateUnits(event.target.value as DisplayRateUnits)}
-                  >
-                    <option value="items_per_second">items/s</option>
-                    <option value="items_per_minute">items/min</option>
-                  </select>
-                </label>
-              </div>
-              {visibleDemands.map(([itemId, amount]) => (
-                <label className="target-row" key={itemId}>
-                  <span>
-                    <strong>{friendlyItemName(itemId)}</strong>
-                    <small>{itemId}</small>
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    placeholder="0"
-                    value={amount}
-                    onChange={(event) => updateDemand(itemId, event.target.value)}
-                  />
-                </label>
-              ))}
-              {!visibleDemands.length && <p className="muted">No matching demands.</p>}
-            </>
-          ) : (
-            <p>Loading problem…</p>
-          )}
-        </Panel>
-
-        <Panel
-          title="Raw input review"
-          subtitle="Backend-computed candidates. Approve what may enter from outside the factory."
-        >
-          {editable ? (
-            <>
-              <div className="filters">
-                <input
-                  type="search"
-                  placeholder="Search external inputs"
-                  value={inputSearch}
-                  onChange={(event) => setInputSearch(event.target.value)}
-                />
-                <label className="check inline">
-                  <input
-                    type="checkbox"
-                    checked={showDisabledInputs}
-                    onChange={(event) => setShowDisabledInputs(event.target.checked)}
-                  />{' '}
-                  Show disabled
-                </label>
-              </div>
-              {visibleExternalInputs.map((input) => (
-                <div className="input-card" key={input.item_id}>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={input.enabled}
-                      onChange={(event) =>
-                        updateExternalInput(input.item_id, { enabled: event.target.checked })
-                      }
-                    />{' '}
-                    {friendlyItemName(input.item_id)}
-                  </label>
-                  <span className="source-pill">{input.kind ?? 'unknown'}</span>
-                  <span className="source-pill">{sourceLabel(input.source)}</span>
-                  {!itemNames.has(input.item_id) && <small>Not listed in item table</small>}
-                  <label>
-                    Cost
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={input.cost}
-                      onChange={(event) =>
-                        updateExternalInput(input.item_id, {
-                          cost: event.target.value,
-                        })
-                      }
-                    />
-                  </label>
-                  <label>
-                    Capacity
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      placeholder="required cap"
-                      value={input.capacity}
-                      onChange={(event) =>
-                        updateExternalInput(input.item_id, {
-                          capacity: event.target.value,
-                        })
-                      }
-                    />
-                  </label>
-                </div>
-              ))}
-              {!visibleExternalInputs.length && <p className="muted">No matching inputs.</p>}
-            </>
-          ) : (
-            <p>Loading inputs…</p>
-          )}
-        </Panel>
-      </section>
-
-      <section className="actions">
-        <fieldset className="solve-mode">
-          <legend>Solve mode</legend>
-          <label className="check inline">
-            <input
-              type="radio"
-              name="solve-mode"
-              checked={editable?.solveMode === 'hard_demand'}
-              onChange={() => updateSolveMode('hard_demand')}
-              disabled={!editable || loading}
-            />
-            Hard demand
-          </label>
-          <label className="check inline">
-            <input
-              type="radio"
-              name="solve-mode"
-              checked={editable?.solveMode === 'soft_diagnostics'}
-              onChange={() => updateSolveMode('soft_diagnostics')}
-              disabled={!editable || loading}
-            />
-            Soft diagnostics
-          </label>
-          <p className="muted">Hard mode must meet the requested rates. Soft diagnostics can show unmet demand when a plan cannot fit.</p>
-        </fieldset>
+      <nav className="tabs" aria-label="Primary sections">
         <button
           type="button"
-          className="primary"
-          disabled={!editable || loading}
-          onClick={() => void startSolve()}
+          className={activeTab === 'solver' ? 'active' : ''}
+          onClick={() => switchTab('solver')}
         >
-          Solve scenario
+          Solver
         </button>
-        {job && (
-          <span>
-            Job {job.job_id}: <strong>{job.status}</strong>
-          </span>
-        )}
-      </section>
+        <button
+          type="button"
+          className={activeTab === 'explorer' ? 'active' : ''}
+          onClick={() => switchTab('explorer')}
+        >
+          Explorer
+        </button>
+      </nav>
 
-      <section className="grid two">
-        <Panel title="Problem summary">
-          <p>
-            {problem?.items.length ?? 0} items · {problem?.recipe_ids.length ?? 0} recipes
-            {problem?.package_id ? ` · package ${problem.package_id}` : ' · default package'}
-          </p>
-        </Panel>
-        <Panel title="Solution summary">
-          {job?.result ? <ResultView result={job.result} /> : <p>No result yet.</p>}
-        </Panel>
-      </section>
+      {activeTab === 'solver' ? (
+        <>
+          <section className="grid two">
+            <Panel title="Target science rates" subtitle="Only positive target rates are sent to the solver.">
+              {editable ? (
+                <>
+                  <div className="control-strip">
+                    <input
+                      type="search"
+                      placeholder="Search target packs"
+                      value={demandSearch}
+                      onChange={(event) => setDemandSearch(event.target.value)}
+                    />
+                    <label>
+                      Units
+                      <select
+                        value={editable.displayRateUnits}
+                        onChange={(event) => updateDisplayRateUnits(event.target.value as DisplayRateUnits)}
+                      >
+                        <option value="items_per_second">items/s</option>
+                        <option value="items_per_minute">items/min</option>
+                      </select>
+                    </label>
+                  </div>
+                  {visibleDemands.map(([itemId, amount]) => (
+                    <label className="target-row" key={itemId}>
+                      <span>
+                        <strong>{friendlyItemName(itemId)}</strong>
+                        <small>{itemId}</small>
+                      </span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="0"
+                        value={amount}
+                        onChange={(event) => updateDemand(itemId, event.target.value)}
+                      />
+                    </label>
+                  ))}
+                  {!visibleDemands.length && <p className="muted">No matching demands.</p>}
+                </>
+              ) : (
+                <p>Loading problem…</p>
+              )}
+            </Panel>
 
-      <MetadataDetails problem={problem} />
+            <Panel
+              title="Raw input review"
+              subtitle="Backend-computed candidates. Approve what may enter from outside the factory."
+            >
+              {editable ? (
+                <>
+                  <div className="filters">
+                    <input
+                      type="search"
+                      placeholder="Search external inputs"
+                      value={inputSearch}
+                      onChange={(event) => setInputSearch(event.target.value)}
+                    />
+                    <label className="check inline">
+                      <input
+                        type="checkbox"
+                        checked={showDisabledInputs}
+                        onChange={(event) => setShowDisabledInputs(event.target.checked)}
+                      />{' '}
+                      Show disabled
+                    </label>
+                  </div>
+                  {visibleExternalInputs.map((input) => (
+                    <div className="input-card" key={input.item_id}>
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={input.enabled}
+                          onChange={(event) =>
+                            updateExternalInput(input.item_id, { enabled: event.target.checked })
+                          }
+                        />{' '}
+                        {friendlyItemName(input.item_id)}
+                      </label>
+                      <span className="source-pill">{input.kind ?? 'unknown'}</span>
+                      <span className="source-pill">{sourceLabel(input.source)}</span>
+                      {!itemNames.has(input.item_id) && <small>Not listed in item table</small>}
+                      <label>
+                        Cost
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={input.cost}
+                          onChange={(event) =>
+                            updateExternalInput(input.item_id, {
+                              cost: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Capacity
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          placeholder="required cap"
+                          value={input.capacity}
+                          onChange={(event) =>
+                            updateExternalInput(input.item_id, {
+                              capacity: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+                  ))}
+                  {!visibleExternalInputs.length && <p className="muted">No matching inputs.</p>}
+                </>
+              ) : (
+                <p>Loading inputs…</p>
+              )}
+            </Panel>
+          </section>
+
+          <section className="actions">
+            <fieldset className="solve-mode">
+              <legend>Solve mode</legend>
+              <label className="check inline">
+                <input
+                  type="radio"
+                  name="solve-mode"
+                  checked={editable?.solveMode === 'hard_demand'}
+                  onChange={() => updateSolveMode('hard_demand')}
+                  disabled={!editable || loading}
+                />
+                Hard demand
+              </label>
+              <label className="check inline">
+                <input
+                  type="radio"
+                  name="solve-mode"
+                  checked={editable?.solveMode === 'soft_diagnostics'}
+                  onChange={() => updateSolveMode('soft_diagnostics')}
+                  disabled={!editable || loading}
+                />
+                Soft diagnostics
+              </label>
+              <p className="muted">
+                Hard mode must meet the requested rates. Soft diagnostics can show unmet demand when a plan cannot fit.
+              </p>
+            </fieldset>
+            <button
+              type="button"
+              className="primary"
+              disabled={!editable || loading}
+              onClick={() => void startSolve()}
+            >
+              Solve scenario
+            </button>
+            {job && (
+              <span>
+                Job {job.job_id}: <strong>{job.status}</strong>
+              </span>
+            )}
+          </section>
+
+          <section className="grid two">
+            <Panel title="Problem summary">
+              <p>
+                {problem?.items.length ?? 0} items · {problem?.recipe_ids.length ?? 0} recipes
+                {problem?.package_id ? ` · package ${problem.package_id}` : ' · default package'}
+              </p>
+            </Panel>
+            <Panel title="Solution summary">
+              {job?.result ? <ResultView result={job.result} /> : <p>No result yet.</p>}
+            </Panel>
+          </section>
+
+          <MetadataDetails problem={problem} />
+        </>
+      ) : (
+        <ExplorerPanel
+          explorer={explorer}
+          loading={explorerLoading}
+          stale={explorerStale}
+          selection={explorerSelection}
+          onSelect={setExplorerSelection}
+          onRefresh={() => void loadExplorer()}
+        />
+      )}
     </main>
   );
 }

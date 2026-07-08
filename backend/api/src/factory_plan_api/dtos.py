@@ -48,6 +48,56 @@ class ProblemPackageDto(BaseModel):
     problem: ProblemDto
 
 
+class UnlockConditionDto(BaseModel):
+    type: Literal["technology", "start-unlocked", "unknown"]
+    id: str | None = None
+
+
+class ExplorerOverviewDto(BaseModel):
+    item_count: int
+    fluid_count: int
+    recipe_count: int
+    item_categories: list[str]
+    recipe_categories: list[str]
+
+
+class ExplorerRecipeLinkDto(BaseModel):
+    id: str
+    category: str
+
+
+class ExplorerItemDto(BaseModel):
+    id: str
+    kind: Literal["item", "fluid", "unknown"]
+    category: str
+    unlock_condition: UnlockConditionDto
+    produced_by: list[ExplorerRecipeLinkDto]
+    consumed_by: list[ExplorerRecipeLinkDto]
+
+
+class ExplorerRecipeIODto(BaseModel):
+    item_id: str
+    kind: Literal["item", "fluid", "unknown"]
+    category: str
+    amount: float
+
+
+class ExplorerRecipeDto(BaseModel):
+    id: str
+    category: str
+    unlock_condition: UnlockConditionDto
+    production_cost: float
+    inputs: list[ExplorerRecipeIODto]
+    outputs: list[ExplorerRecipeIODto]
+
+
+class ExplorerResponseDto(BaseModel):
+    package_id: str
+    overview: ExplorerOverviewDto
+    items: list[ExplorerItemDto]
+    recipes: list[ExplorerRecipeDto]
+
+
 class SolveRequestDto(BaseModel):
     package_id: str | None = None
     solve_mode: Literal["hard_demand", "soft_diagnostics"] = "hard_demand"

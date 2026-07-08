@@ -1,4 +1,11 @@
-import type { PackageProblemDto, ProblemDto, SolveJobDto, SolveQueuedDto, SolveRequestDto } from './dtos';
+import type {
+  ExplorerResponseDto,
+  PackageProblemDto,
+  ProblemDto,
+  SolveJobDto,
+  SolveQueuedDto,
+  SolveRequestDto,
+} from './dtos';
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -46,6 +53,7 @@ function messageFromBody(body: unknown): string | undefined {
 
 export const apiClient = {
   getDefaultProblem: (init?: RequestInit) => request<ProblemDto>('/api/problem/default', init),
+  getExplorer: (init?: RequestInit) => request<ExplorerResponseDto>('/api/explorer', init),
   uploadPackage: (payload: unknown) =>
     request<PackageProblemDto>('/api/problem/package', {
       method: 'POST',

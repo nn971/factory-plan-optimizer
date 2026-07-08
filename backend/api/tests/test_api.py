@@ -139,6 +139,96 @@ def test_default_problem_endpoint_shape() -> None:
     assert {"id": "py-science-pack-1", "kind": "item"} in body["items"]
 
 
+def test_explorer_autoloads_default_and_returns_package_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    app_module.clear_current_package()
+
+    response = TestClient(app).get("/api/explorer")
+
+    assert response.status_code == HTTP_OK
+    body = response.json()
+    assert body["package_id"] == DEFAULT_PACKAGE_ID
+    assert body["overview"]["item_count"] == len(body["items"])
+    assert body["overview"]["fluid_count"] == sum(
+        1 for item in body["items"] if item["kind"] == "fluid"
+    )
+    assert body["overview"]["recipe_count"] == len(body["recipes"])
+
+
+def test_uploaded_package_updates_current_explorer_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    app_module.clear_current_package()
+    client = TestClient(app)
+
+    uploaded = client.post("/api/problem/package", json=_water_package()).json()
+    explorer = client.get("/api/explorer")
+
+    assert explorer.status_code == HTTP_OK
+    body = explorer.json()
+    assert body["package_id"] == uploaded["package_id"]
+    assert [item["id"] for item in body["items"]] == ["water"]
+    assert [recipe["id"] for recipe in body["recipes"]] == ["pump-water"]
+
+
+def test_solve_edits_do_not_mutate_current_explorer_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    app_module.clear_current_package()
+    client = TestClient(app)
+    uploaded = client.post(
+        "/api/problem/package", json=_water_package(demand=1.0)
+    ).json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "package_id": uploaded["package_id"],
+            "demands": {"water": 4.0},
+            "external_inputs": [],
+        },
+    )
+    assert queued.status_code == HTTP_OK
+    body = _wait_for_job(client, queued.json()["job_id"])
+    assert body["status"] == "succeeded"
+
+    explorer = client.get("/api/explorer").json()
+    assert explorer["package_id"] == uploaded["package_id"]
+    assert explorer["items"] == [
+        {
+            "id": "water",
+            "kind": "fluid",
+            "category": "unknown",
+            "unlock_condition": {"type": "unknown", "id": None},
+            "produced_by": [{"id": "pump-water", "category": "unknown"}],
+            "consumed_by": [],
+        },
+    ]
+
+
+def test_explorer_endpoint_does_not_invoke_solver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    app_module.clear_current_package()
+
+    def fail_solver(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("solver should not run")
+
+    monkeypatch.setattr(app_module, "solve_global_recipe_lp", fail_solver)
+
+    response = TestClient(app).get("/api/explorer")
+
+    assert response.status_code == HTTP_OK
+
+
 def test_solve_job_eventually_succeeds_for_curated_science_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

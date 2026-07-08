@@ -64,6 +64,9 @@ def test_loads_minimal_package_with_kind_default_and_immutable_structures() -> N
     assert package.schema_version == SCHEMA_VERSION
     assert isinstance(package.items, tuple)
     assert package.items[0].kind == "unknown"
+    assert package.items[0].category == "unknown"
+    assert package.items[0].unlock_condition.type == "unknown"
+    assert package.items[0].unlock_condition.id is None
     assert package.items[1].kind == "item"
     assert isinstance(package.recipes, tuple)
     assert dict(package.recipes[0].coefficients) == {
@@ -71,6 +74,35 @@ def test_loads_minimal_package_with_kind_default_and_immutable_structures() -> N
         "iron-plate": 1.0,
     }
     assert package.external_supplies["iron-ore"].capacity is None
+
+
+def test_loads_valid_category_and_unlock_metadata() -> None:
+    data = _minimal_package()
+    _first_item(data)["category"] = "raw"
+    _first_item(data)["unlock_condition"] = {"type": "unknown", "id": None}
+    _first_recipe(data)["category"] = "smelting"
+    _first_recipe(data)["unlock_condition"] = {
+        "type": "technology",
+        "id": "advanced-smelting",
+    }
+
+    package = _load(data)
+
+    assert package.items[0].category == "raw"
+    assert package.items[0].unlock_condition.id is None
+    assert package.recipes[0].category == "smelting"
+    assert package.recipes[0].unlock_condition.type == "technology"
+    assert package.recipes[0].unlock_condition.id == "advanced-smelting"
+
+
+def test_loads_non_technology_unlock_with_omitted_id() -> None:
+    data = _minimal_package()
+    _first_recipe(data)["unlock_condition"] = {"type": "start-unlocked"}
+
+    package = _load(data)
+
+    assert package.recipes[0].unlock_condition.type == "start-unlocked"
+    assert package.recipes[0].unlock_condition.id is None
 
 
 @pytest.mark.parametrize(

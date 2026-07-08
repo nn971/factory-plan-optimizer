@@ -18,6 +18,7 @@ frontend/*.tsbuildinfo
 .slim/deepwork/
 .superpowers/
 .ignore
+interview/
 
 data/raw/
 data/generated/

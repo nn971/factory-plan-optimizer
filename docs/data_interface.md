@@ -11,12 +11,21 @@ consume only this package shape.
 ```json
 {
   "schema_version": "factory-data-v1",
-  "items": [{"id": "iron-ore", "kind": "item"}],
+  "items": [
+    {
+      "id": "iron-ore",
+      "kind": "item",
+      "category": "unknown",
+      "unlock_condition": {"type": "unknown", "id": null}
+    }
+  ],
   "recipes": [
     {
       "id": "smelt-iron-plate",
       "coefficients": {"iron-ore": -1.0, "iron-plate": 1.0},
-      "production_cost": 0.0
+      "production_cost": 0.0,
+      "category": "smelting",
+      "unlock_condition": {"type": "start-unlocked", "id": null}
     }
   ],
   "final_demands": {"iron-plate": 60.0},
@@ -39,6 +48,13 @@ The first canonical example package is
   their collection.
 - Items represent both solid items and fluids. `kind` is one of `item`, `fluid`,
   or `unknown`. It is optional; the loader defaults omitted `kind` to `unknown`.
+- Items and recipes may include additive v1 metadata fields while keeping the
+  array-based wire shape and `factory-data-v1` schema version. `category` is an
+  optional non-empty string with no whitespace and defaults to `unknown`.
+- `unlock_condition` is optional and defaults to `{"type": "unknown", "id": null}`.
+  Allowed types are `technology`, `start-unlocked`, and `unknown`. Technology
+  unlocks require a non-empty technology `id`; start-unlocked and unknown unlocks
+  require `id` to be omitted or `null` and serialize with explicit `id: null`.
 - Rates are continuous amounts per second. Adapters must convert coefficients,
   demands, supplies, and costs to this common rate basis before writing the
   package.
@@ -123,7 +139,12 @@ adapter should map it into `FactoryDataPackage` as follows:
 - item/fluid prototype type -> `items[].kind` when available, otherwise
   `unknown`.
 - `RecipePrototype.name` -> `recipes[].id`.
+- `RecipePrototype.category` -> `recipes[].category`.
 - signed `RecipeCoefficient.amount` -> `recipes[].coefficients[item_id]`.
+- `RecipePrototype.enabled` -> `recipes[].unlock_condition` of `start-unlocked`.
+- `TechnologyPrototype.unlocks` -> recipe `technology` unlock conditions; if
+  multiple technologies unlock one recipe, the adapter chooses the sorted first
+  technology ID deterministically. Recipes without either source use `unknown`.
 - enabled or milestone-filtered recipe set -> included `recipes`.
 - `ResourceSource.item_name` and source policy -> `external_supplies` entries
   with cost and optional capacity.

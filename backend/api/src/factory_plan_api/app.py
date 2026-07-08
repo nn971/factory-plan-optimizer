@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from factory_plan_optimizer.optimizer.global_recipe_lp import solve_global_recipe_lp
@@ -12,6 +13,7 @@ from game_data_extractor.data_contracts import (
 
 from factory_plan_api.default_data import load_default_factory_data
 from factory_plan_api.dtos import (
+    ExplorerResponseDto,
     ProblemDto,
     ProblemPackageDto,
     SolveJobDto,
@@ -19,6 +21,7 @@ from factory_plan_api.dtos import (
     SolveRequestDto,
     SolveResultDto,
 )
+from factory_plan_api.explorer import explorer_from_package
 from factory_plan_api.jobs import SolveJobStore, SolveJobStoreFullError
 from factory_plan_api.problem import (
     DEFAULT_PACKAGE_ID,
@@ -38,10 +41,21 @@ MAX_STORED_PACKAGES = 8
 uploaded_packages: dict[str, FactoryDataPackage] = {}
 
 
+@dataclass
+class CurrentPackageState:
+    package_id: str | None = None
+    package: FactoryDataPackage | None = None
+
+
+current_package_state = CurrentPackageState()
+
+
 @app.get("/api/problem/default", response_model=ProblemDto)
 async def get_default_problem() -> ProblemDto:
+    package = load_default_factory_data()
+    set_current_package(DEFAULT_PACKAGE_ID, package)
     return problem_from_package(
-        load_default_factory_data(),
+        package,
         package_id=DEFAULT_PACKAGE_ID,
         scenario_id=DEFAULT_SCENARIO_ID,
     )
@@ -75,10 +89,17 @@ async def post_problem_package(request: Request) -> ProblemPackageDto:
         )
     package_id = str(uuid.uuid4())
     uploaded_packages[package_id] = package
+    set_current_package(package_id, package)
     return ProblemPackageDto(
         package_id=package_id,
         problem=problem_from_package(package, package_id=package_id),
     )
+
+
+@app.get("/api/explorer", response_model=ExplorerResponseDto)
+async def get_explorer() -> ExplorerResponseDto:
+    package_id, package = current_package_or_default()
+    return explorer_from_package(package, package_id)
 
 
 @app.post("/api/solve", response_model=SolveQueuedDto)
@@ -123,6 +144,26 @@ def _base_package_from_request(request: SolveRequestDto) -> FactoryDataPackage:
     if package is None:
         raise HTTPException(status_code=404, detail="unknown factory data package")
     return package
+
+
+def set_current_package(package_id: str, package: FactoryDataPackage) -> None:
+    current_package_state.package_id = package_id
+    current_package_state.package = package
+
+
+def clear_current_package() -> None:
+    current_package_state.package_id = None
+    current_package_state.package = None
+
+
+def current_package_or_default() -> tuple[str, FactoryDataPackage]:
+    package_id = current_package_state.package_id
+    package = current_package_state.package
+    if package_id is None or package is None:
+        package = load_default_factory_data()
+        set_current_package(DEFAULT_PACKAGE_ID, package)
+        package_id = DEFAULT_PACKAGE_ID
+    return package_id, package
 
 
 def _parse_content_length(value: str) -> int:

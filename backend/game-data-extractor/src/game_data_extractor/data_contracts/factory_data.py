@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from json import JSONDecodeError
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, NoReturn, cast
@@ -12,10 +12,23 @@ if TYPE_CHECKING:
 
 SCHEMA_VERSION = "factory-data-v1"
 type ItemKind = Literal["item", "fluid", "unknown"]
+type UnlockConditionType = Literal["technology", "start-unlocked", "unknown"]
 type JsonValue = (
     None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 )
 type JsonObject = dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class UnlockCondition:
+    """How an item or recipe becomes available."""
+
+    type: UnlockConditionType = "unknown"
+    id: str | None = None
+
+    def to_json_value(self) -> dict[str, JsonValue]:
+        """Return a JSON-compatible representation."""
+        return {"type": self.type, "id": self.id if self.type == "technology" else None}
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,10 +37,17 @@ class Item:
 
     id: str
     kind: ItemKind = "unknown"
+    category: str = "unknown"
+    unlock_condition: UnlockCondition = field(default_factory=UnlockCondition)
 
     def to_json_value(self) -> dict[str, JsonValue]:
         """Return a JSON-compatible representation."""
-        return {"id": self.id, "kind": self.kind}
+        return {
+            "category": self.category,
+            "id": self.id,
+            "kind": self.kind,
+            "unlock_condition": self.unlock_condition.to_json_value(),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +57,8 @@ class Recipe:
     id: str
     coefficients: Mapping[str, float]
     production_cost: float
+    category: str = "unknown"
+    unlock_condition: UnlockCondition = field(default_factory=UnlockCondition)
 
     def __post_init__(self) -> None:
         """Freeze coefficients behind a read-only mapping."""
@@ -51,7 +73,9 @@ class Recipe:
         return {
             "id": self.id,
             "coefficients": dict(self.coefficients),
+            "category": self.category,
             "production_cost": self.production_cost,
+            "unlock_condition": self.unlock_condition.to_json_value(),
         }
 
 
@@ -127,8 +151,11 @@ _PACKAGE_KEYS = frozenset(
         "unmet_demand_penalty_rate",
     },
 )
-_ITEM_KEYS = frozenset({"id", "kind"})
-_RECIPE_KEYS = frozenset({"id", "coefficients", "production_cost"})
+_ITEM_KEYS = frozenset({"id", "kind", "category", "unlock_condition"})
+_RECIPE_KEYS = frozenset(
+    {"id", "coefficients", "production_cost", "category", "unlock_condition"},
+)
+_UNLOCK_CONDITION_KEYS = frozenset({"type", "id"})
 _EXTERNAL_SUPPLY_KEYS = frozenset({"cost", "capacity"})
 
 
@@ -189,7 +216,16 @@ def _items(mapping: JsonObject) -> tuple[Item, ...]:
         kind = item_mapping.get("kind", "unknown")
         if kind not in ("item", "fluid", "unknown"):
             _raise_parse_error("item.kind", "expected item, fluid, or unknown")
-        items.append(Item(id=item_id, kind=kind))
+        items.append(
+            Item(
+                id=item_id,
+                kind=kind,
+                category=_category(item_mapping, "item.category"),
+                unlock_condition=_unlock_condition(
+                    item_mapping, "item.unlock_condition"
+                ),
+            ),
+        )
     return tuple(items)
 
 
@@ -212,6 +248,11 @@ def _recipes(mapping: JsonObject, item_ids: set[str]) -> tuple[Recipe, ...]:
                 id=recipe_id,
                 coefficients=coefficients,
                 production_cost=_nonnegative_number(recipe_mapping, "production_cost"),
+                category=_category(recipe_mapping, "recipe.category"),
+                unlock_condition=_unlock_condition(
+                    recipe_mapping,
+                    "recipe.unlock_condition",
+                ),
             ),
         )
     return tuple(recipes)
@@ -231,6 +272,41 @@ def _coefficient_map(mapping: JsonObject, item_ids: set[str]) -> dict[str, float
             _raise_parse_error("coefficients", "zero coefficient is not allowed")
         result[item_id] = coefficient
     return result
+
+
+def _category(mapping: JsonObject, context: str) -> str:
+    value = mapping.get("category", "unknown")
+    if not isinstance(value, str):
+        _raise_parse_error(context, "expected string")
+    _validate_id(value, context)
+    return value
+
+
+def _unknown_unlock() -> UnlockCondition:
+    return UnlockCondition(type="unknown", id=None)
+
+
+def _unlock_condition(mapping: JsonObject, context: str) -> UnlockCondition:
+    if "unlock_condition" not in mapping:
+        return _unknown_unlock()
+    value = mapping["unlock_condition"]
+    unlock_mapping = _as_mapping(value, context)
+    _reject_unknown_keys(unlock_mapping, _UNLOCK_CONDITION_KEYS, context)
+    unlock_type = unlock_mapping.get("type")
+    if unlock_type not in ("technology", "start-unlocked", "unknown"):
+        _raise_parse_error(
+            f"{context}.type",
+            "expected technology, start-unlocked, or unknown",
+        )
+    unlock_id = unlock_mapping.get("id")
+    if unlock_type == "technology":
+        if not isinstance(unlock_id, str):
+            _raise_parse_error(f"{context}.id", "expected string")
+        _validate_id(unlock_id, f"{context}.id")
+        return UnlockCondition(type="technology", id=unlock_id)
+    if unlock_id is not None:
+        _raise_parse_error(f"{context}.id", "expected null or omitted")
+    return UnlockCondition(type=unlock_type, id=None)
 
 
 def _external_supplies(

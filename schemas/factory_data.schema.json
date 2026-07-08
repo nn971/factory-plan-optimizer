@@ -44,7 +44,9 @@
       "required": ["id"],
       "properties": {
         "id": {"$ref": "#/$defs/id"},
-        "kind": {"enum": ["item", "fluid", "unknown"], "default": "unknown"}
+        "kind": {"enum": ["item", "fluid", "unknown"], "default": "unknown"},
+        "category": {"$ref": "#/$defs/id", "default": "unknown"},
+        "unlock_condition": {"$ref": "#/$defs/unlockCondition"}
       }
     },
     "recipe": {
@@ -62,8 +64,32 @@
             "not": {"const": 0}
           }
         },
-        "production_cost": {"type": "number", "minimum": 0}
+        "production_cost": {"type": "number", "minimum": 0},
+        "category": {"$ref": "#/$defs/id", "default": "unknown"},
+        "unlock_condition": {"$ref": "#/$defs/unlockCondition"}
       }
+    },
+    "unlockCondition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "id"],
+          "properties": {
+            "type": {"const": "technology"},
+            "id": {"$ref": "#/$defs/id"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": {"enum": ["start-unlocked", "unknown"]},
+            "id": {"type": "null"}
+          }
+        }
+      ]
     },
     "nonnegativeNumberMap": {
       "type": "object",

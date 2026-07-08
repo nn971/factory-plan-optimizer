@@ -8,6 +8,7 @@ from game_data_extractor.data_contracts.factory_data import (
     FactoryDataPackage,
     Item,
     Recipe,
+    UnlockCondition,
 )
 
 if TYPE_CHECKING:
@@ -41,19 +42,36 @@ def dataset_to_factory_data_package(
     accepted_inputs: Sequence[str] | None = None,
 ) -> FactoryDataPackage:
     accepted = tuple(accepted_inputs or accepted_early_pyanodon_inputs(dataset))
+    technology_by_recipe = _recipe_unlocks_by_technology(dataset)
     return FactoryDataPackage(
         schema_version=SCHEMA_VERSION,
         items=tuple(
             Item(id=item.name, kind=item.prototype_type) for item in dataset.items
         ),
-        recipes=tuple(_convert_recipe(recipe) for recipe in dataset.recipes),
+        recipes=tuple(
+            _convert_recipe(recipe, technology_by_recipe) for recipe in dataset.recipes
+        ),
         final_demands=dict(demands_per_second),
         external_supplies={name: ExternalSupply(cost=1.0) for name in accepted},
         unmet_demand_penalty_rate=UNMET_DEMAND_PENALTY_RATE,
     )
 
 
-def _convert_recipe(recipe: RecipePrototype) -> Recipe:
+def _recipe_unlocks_by_technology(dataset: OptimizerRecipeDataset) -> dict[str, str]:
+    unlocks: dict[str, list[str]] = {}
+    for technology in dataset.technologies:
+        for unlock in technology.unlocks:
+            unlocks.setdefault(unlock.recipe_name, []).append(technology.name)
+    return {
+        recipe_name: sorted(technology_names)[0]
+        for recipe_name, technology_names in unlocks.items()
+    }
+
+
+def _convert_recipe(
+    recipe: RecipePrototype,
+    technology_by_recipe: Mapping[str, str],
+) -> Recipe:
     coefficients: dict[str, float] = {}
     for coefficient in recipe.coefficients:
         coefficients[coefficient.item_name] = (
@@ -67,4 +85,18 @@ def _convert_recipe(recipe: RecipePrototype) -> Recipe:
             if abs(value) > TOLERANCE
         },
         production_cost=0.0,
+        category=recipe.category,
+        unlock_condition=_recipe_unlock_condition(recipe, technology_by_recipe),
     )
+
+
+def _recipe_unlock_condition(
+    recipe: RecipePrototype,
+    technology_by_recipe: Mapping[str, str],
+) -> UnlockCondition:
+    if recipe.enabled:
+        return UnlockCondition(type="start-unlocked")
+    technology_id = technology_by_recipe.get(recipe.name)
+    if technology_id is not None:
+        return UnlockCondition(type="technology", id=technology_id)
+    return UnlockCondition(type="unknown")

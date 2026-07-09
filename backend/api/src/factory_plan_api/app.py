@@ -132,6 +132,7 @@ def _package_from_request(request: SolveRequestDto) -> FactoryDataPackage:
             base_package,
             request.demands,
             request.external_inputs,
+            request.selected_milestone,
         )
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error

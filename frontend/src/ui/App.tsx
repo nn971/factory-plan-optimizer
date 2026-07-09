@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { ApiError, apiClient } from '../api/client';
-import type { ErrorDto, ExplorerResponseDto, ProblemDto, SolveJobDto, SolveResultDto } from '../api/dtos';
+import type { ErrorDto, ExplorerResponseDto, ProblemDto, SolveJobDto } from '../api/dtos';
 import {
   selectionExists,
   type ExplorerSelection,
 } from '../domain/explorerState';
 import { ExplorerPanel } from './ExplorerPanel';
+import { SolveResultPanel } from './solve-result/SolveResultPanel';
 import {
   createEditableProblem,
   displayRateToItemsPerSecond,
@@ -151,7 +152,7 @@ export function App() {
       tone: 'info',
     });
     try {
-      const queued = await apiClient.startSolve(toSolveRequest(editable, problem?.package_id));
+      const queued = await apiClient.startSolve(toSolveRequest(editable, problem?.package_id, selectedMilestone));
       setJob({ ...queued, result: null, error: null });
       await pollJob(queued.job_id);
     } catch (error) {
@@ -518,15 +519,22 @@ export function App() {
             )}
           </section>
 
-          <section className="grid two">
+          <section className="grid">
+            <Panel title="Solution summary">
+              <SolveResultPanel
+                job={job}
+                explorer={explorer}
+                explorerLoading={explorerLoading}
+                explorerStale={explorerStale}
+                onLoadExplorer={() => void loadExplorer()}
+                currentPackageId={problem?.package_id}
+              />
+            </Panel>
             <Panel title="Problem summary">
               <p>
                 {problem?.items.length ?? 0} items · {problem?.recipe_ids.length ?? 0} recipes
                 {problem?.package_id ? ` · package ${problem.package_id}` : ' · default package'}
               </p>
-            </Panel>
-            <Panel title="Solution summary">
-              {job?.result ? <ResultView result={job.result} /> : <p>No result yet.</p>}
             </Panel>
           </section>
 
@@ -587,39 +595,6 @@ function MilestonePanel({
   );
 }
 
-function ResultView({ result }: { result: SolveResultDto }) {
-  const [filter, setFilter] = useState('');
-  return (
-    <div className="result">
-      <p>
-        Status: <strong>{result.solver_status}</strong>
-      </p>
-      <p>
-        Objective: <strong>{result.objective_value ?? 'n/a'}</strong>
-      </p>
-      {result.message && <p>{result.message}</p>}
-      <input
-        type="search"
-        placeholder="Filter result rows"
-        value={filter}
-        onChange={(event) => setFilter(event.target.value)}
-      />
-      <KeyValueTable title="Recipe rates" values={result.recipe_rates} filter={filter} onlyNonzero />
-      <KeyValueTable title="Objective components" values={result.objective_components} filter={filter} />
-      <KeyValueTable title="External supplies" values={result.external_supplies} filter={filter} onlyNonzero />
-      <KeyValueTable title="Unmet demand" values={result.unmet_demand} filter={filter} onlyNonzero />
-      <KeyValueTable title="Surplus" values={result.surplus} filter={filter} onlyNonzero />
-      <KeyValueTable title="Residuals" values={result.balance_residuals} filter={filter} onlyNonzero />
-      {result.details && (
-        <details>
-          <summary>Debug details</summary>
-          <pre>{result.details}</pre>
-        </details>
-      )}
-    </div>
-  );
-}
-
 function MetadataDetails({ problem }: { problem: ProblemDto | null }) {
   const itemCount = Object.keys(problem?.item_metadata ?? {}).length;
   const recipeCount = Object.keys(problem?.recipe_metadata ?? {}).length;
@@ -651,43 +626,6 @@ function MetadataTable({ title, values }: { title: string; values: Record<string
           ))}
         </tbody>
       </table>
-    </section>
-  );
-}
-
-function KeyValueTable({
-  title,
-  values,
-  filter = '',
-  onlyNonzero = false,
-}: {
-  title: string;
-  values: Record<string, number>;
-  filter?: string;
-  onlyNonzero?: boolean;
-}) {
-  const normalizedFilter = filter.toLowerCase();
-  const rows = Object.entries(values).filter(
-    ([key, value]) =>
-      key.toLowerCase().includes(normalizedFilter) && (!onlyNonzero || Math.abs(value) > 1e-9),
-  );
-  return (
-    <section className="kv">
-      <h3>{title}</h3>
-      {rows.length ? (
-        <table>
-          <tbody>
-            {rows.map(([key, value]) => (
-              <tr key={key}>
-                <th>{key}</th>
-                <td>{formatNumber(value)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="muted">None</p>
-      )}
     </section>
   );
 }
@@ -953,8 +891,4 @@ function isAbortError(error: unknown): boolean {
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function formatNumber(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toPrecision(8);
 }

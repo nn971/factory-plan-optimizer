@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,6 +19,7 @@ from factory_plan_api.jobs import SolveJobStoreFullError
 
 if TYPE_CHECKING:
     import pytest
+    from game_data_extractor.data_contracts import FactoryDataPackage
 
 HTTP_OK = 200
 HTTP_NOT_FOUND = 404
@@ -115,6 +117,63 @@ def _coal_and_raw_coal_package() -> dict[str, Any]:
             "coal": {"cost": 2.0, "capacity": 10.0},
         },
         "unmet_demand_penalty_rate": 1000.0,
+    }
+
+
+def _milestone_filter_package() -> dict[str, Any]:
+    return {
+        "schema_version": "factory-data-v2",
+        "items": [
+            {"id": "ore", "kind": "item"},
+            {"id": "gear", "kind": "item"},
+            {"id": "science-pack-a", "kind": "item"},
+            {"id": "science-pack-b", "kind": "item"},
+        ],
+        "recipes": [
+            {
+                "id": "make-gear",
+                "coefficients": {"ore": -1.0, "gear": 1.0},
+                "energy_required": 1.0,
+                "ingredients": [{"type": "item", "name": "ore", "amount": 1.0}],
+                "results": [{"type": "item", "name": "gear", "amount": 1.0}],
+                "production_cost": 0.0,
+            },
+            {
+                "id": "make-science-a",
+                "coefficients": {"gear": -1.0, "science-pack-a": 1.0},
+                "energy_required": 1.0,
+                "ingredients": [{"type": "item", "name": "gear", "amount": 1.0}],
+                "results": [{"type": "item", "name": "science-pack-a", "amount": 1.0}],
+                "production_cost": 0.0,
+            },
+            {
+                "id": "make-science-b",
+                "coefficients": {"gear": -1.0, "science-pack-b": 1.0},
+                "energy_required": 1.0,
+                "ingredients": [{"type": "item", "name": "gear", "amount": 1.0}],
+                "results": [{"type": "item", "name": "science-pack-b", "amount": 1.0}],
+                "production_cost": 0.0,
+            },
+        ],
+        "final_demands": {"science-pack-a": 1.0},
+        "external_supplies": {"ore": {"cost": 1.0, "capacity": 10.0}},
+        "unmet_demand_penalty_rate": 1000.0,
+        "milestones": [
+            {
+                "milestone": "science-pack-a",
+                "recipe_names": ["make-gear", "make-science-a"],
+                "diagnostics": [],
+            },
+            {
+                "milestone": "science-pack-b",
+                "recipe_names": [
+                    "make-gear",
+                    "make-science-a",
+                    "make-science-b",
+                ],
+                "diagnostics": [],
+            },
+        ],
     }
 
 
@@ -455,6 +514,78 @@ def test_solve_uses_uploaded_package_not_default(
     body = _wait_for_job(client, queued.json()["job_id"])
     assert body["status"] == "succeeded"
     assert body["result"]["recipe_rates"] == {"pump-water": 3.0}
+
+
+def test_solve_unknown_selected_milestone_returns_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    client = TestClient(app)
+    uploaded = client.post(
+        "/api/problem/package",
+        json=_milestone_filter_package(),
+    ).json()
+
+    response = client.post(
+        "/api/solve",
+        json={
+            "package_id": uploaded["package_id"],
+            "selected_milestone": "not-a-milestone",
+            "demands": {"science-pack-a": 1.0},
+            "external_inputs": uploaded["problem"]["external_inputs"],
+        },
+    )
+
+    assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
+    assert "unknown selected milestone" in response.json()["detail"]
+
+
+def test_solve_selected_milestone_filters_solver_recipes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    captured_recipe_ids: list[str] = []
+
+    @dataclass
+    class SolverResult:
+        status = "optimal"
+        objective_value: float = 0.0
+        objective_components: dict[str, float] = field(default_factory=dict)
+        recipe_rates: dict[str, float] = field(default_factory=dict)
+        external_supplies: dict[str, float] = field(default_factory=dict)
+        unmet_demand: dict[str, float] = field(default_factory=dict)
+        surplus: dict[str, float] = field(default_factory=dict)
+        balance_residuals: dict[str, float] = field(default_factory=dict)
+        message = ""
+        details = ""
+
+    def capture_solver(package: FactoryDataPackage, **_kwargs: object) -> SolverResult:
+        captured_recipe_ids.extend(recipe.id for recipe in package.recipes)
+        return SolverResult()
+
+    monkeypatch.setattr(app_module, "solve_global_recipe_lp", capture_solver)
+    client = TestClient(app)
+    uploaded = client.post(
+        "/api/problem/package",
+        json=_milestone_filter_package(),
+    ).json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "package_id": uploaded["package_id"],
+            "selected_milestone": "science-pack-a",
+            "demands": {"science-pack-a": 1.0},
+            "external_inputs": uploaded["problem"]["external_inputs"],
+        },
+    )
+
+    assert queued.status_code == HTTP_OK
+    body = _wait_for_job(client, queued.json()["job_id"])
+    assert body["status"] == "succeeded"
+    assert captured_recipe_ids == ["make-gear", "make-science-a"]
 
 
 def test_solve_mode_defaults_to_hard_demand_for_uploaded_package(

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "check:boundaries": "node scripts/check-boundaries.mjs"
   },
   "dependencies": {
@@ -14,11 +15,12 @@
     "react-dom": "latest"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
     "@types/node": "latest",
     "@types/react": "latest",
-    "@types/react-dom": "latest"
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "^4.1.10"
   }
 }

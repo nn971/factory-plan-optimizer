@@ -45,9 +45,12 @@ export function createEditableProblem(problem: ProblemDto): EditableProblem {
 export function toSolveRequest(
   editable: EditableProblem,
   packageId?: string | null,
+  selectedMilestone?: string | null,
 ): SolveRequestDto {
+  const trimmedMilestone = selectedMilestone?.trim();
   return {
     package_id: packageId ?? undefined,
+    ...(trimmedMilestone ? { selected_milestone: trimmedMilestone } : {}),
     solve_mode: editable.solveMode,
     demands: Object.fromEntries(
       Object.entries(editable.demands)

@@ -145,6 +145,7 @@ def package_with_edits(
     package: FactoryDataPackage,
     demands: dict[str, float],
     external_inputs: list[ExternalInputDto],
+    selected_milestone: str | None = None,
 ) -> FactoryDataPackage:
     item_ids = {item.id for item in package.items}
     unknown_demand_ids = sorted(set(demands) - item_ids)
@@ -172,10 +173,25 @@ def package_with_edits(
         for external_input in external_inputs
         if external_input.enabled
     }
+    recipes = package.recipes
+    if selected_milestone is not None and selected_milestone.strip():
+        milestone_id = selected_milestone.strip()
+        milestone = next(
+            (
+                candidate
+                for candidate in package.milestones
+                if candidate.milestone == milestone_id
+            ),
+            None,
+        )
+        if milestone is None:
+            raise ValueError(f"unknown selected milestone: {milestone_id}")
+        recipe_ids = set(milestone.recipe_names)
+        recipes = tuple(recipe for recipe in package.recipes if recipe.id in recipe_ids)
     return FactoryDataPackage(
         schema_version=package.schema_version,
         items=package.items,
-        recipes=package.recipes,
+        recipes=recipes,
         final_demands=demands,
         external_supplies=supplies,
         unmet_demand_penalty_rate=package.unmet_demand_penalty_rate,

@@ -125,6 +125,7 @@ class ExplorerResponseDto(BaseModel):
 
 class SolveRequestDto(BaseModel):
     package_id: str | None = None
+    selected_milestone: str | None = None
     solve_mode: Literal["hard_demand", "soft_diagnostics"] = "hard_demand"
     demands: dict[str, float] = Field(default_factory=dict)
     external_inputs: list[ExternalInputDto] = Field(default_factory=list)

@@ -102,6 +102,7 @@ export type ProblemDto = {
 
 export type SolveRequestDto = {
   package_id?: string | null;
+  selected_milestone?: string | null;
   solve_mode: SolveModeDto;
   demands: Record<string, number>;
   external_inputs: ExternalInputDto[];

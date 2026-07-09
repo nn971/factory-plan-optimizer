@@ -77,7 +77,7 @@ export type ExternalInputDto = {
   enabled: boolean;
   cost: number;
   capacity: number | null;
-  source?: 'package_external_supply' | 'inferred_unproduced' | 'inferred_fluid' | null;
+  source?: 'default_input' | 'inferred_unproduced' | 'inferred_fluid' | null;
   default_approved?: boolean;
 };
 
@@ -114,6 +114,48 @@ export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
 export type SolveQueuedDto = { job_id: string; status: JobStatus };
 
+export type ClusterBoundaryDirectionDto = 'input' | 'output';
+
+export type ClusterBoundaryItemDto = {
+  item_id: string;
+  direction: ClusterBoundaryDirectionDto;
+  is_zero_net: boolean;
+  quantity: number;
+  flow_cost: number;
+  port_cost: number;
+};
+
+export type ClusterDto = {
+  id: string;
+  label: string;
+  category: string;
+  recipe_ids: string[];
+  active_recipe_count: number;
+  boundary_item_type_count: number;
+  boundary_items: ClusterBoundaryItemDto[];
+  diagnostic_components: Record<string, number>;
+};
+
+export type ClusterCostDefaultsDto = {
+  flow_cost_per_quantity: number;
+  port_cost_per_boundary_type: number;
+  recipe_size_penalty: number;
+  boundary_type_size_penalty: number;
+  target_active_recipes: number[];
+  target_boundary_item_types: number[];
+};
+
+export type ClusterDiagnosticsDto = {
+  mode: 'diagnostic_only';
+  active_epsilon: number;
+  cost_defaults: ClusterCostDefaultsDto;
+  diagnostic_components: Record<string, number>;
+  base_objective_value: number;
+  diagnostic_total: number;
+  combined_diagnostic_objective_value: number;
+  clusters: ClusterDto[];
+};
+
 export type SolveResultDto = {
   solver_status: string;
   objective_value: number | null;
@@ -123,6 +165,7 @@ export type SolveResultDto = {
   unmet_demand: Record<string, number>;
   surplus: Record<string, number>;
   balance_residuals: Record<string, number>;
+  cluster_diagnostics?: ClusterDiagnosticsDto | null;
   message?: string;
   details?: string;
 };

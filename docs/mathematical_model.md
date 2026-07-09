@@ -85,10 +85,131 @@ duplication_cost = 0
 The inactive logistics terms are reported as zero for this LP so result objects
 have the same objective component names as later logistics-aware optimizers.
 
+### Post-solve cluster diagnostics
+
+Successful global LP solves also report diagnostic-only cluster/logistics data.
+These diagnostics are computed after the LP solution is loaded. They are not
+decision variables, constraints, or objective terms in the LP, and they do not
+change selected recipe rates. For a diagnostic-only result:
+
+```text
+objective_value = raw_cost + production_cost + unmet_demand_penalty
+flow_cost = 0
+port_cost = 0
+cluster_cost = 0
+duplication_cost = 0
+```
+
+The diagnostic payload separately reports:
+
+```text
+base_objective_value = objective_value
+diagnostic_total = diagnostic_flow_cost
+                 + diagnostic_port_cost
+                 + diagnostic_cluster_cost
+                 + diagnostic_duplication_cost
+combined_diagnostic_objective_value = base_objective_value + diagnostic_total
+```
+
+`combined_diagnostic_objective_value` is for comparison and explanation only; it
+is not the objective optimized by the solver.
+
+#### Active recipes and fixed diagnostic clusters
+
+Let `eps = 1e-9`. A recipe is active for cluster diagnostics when:
+
+```text
+x_r > eps
+```
+
+Only active recipes are included in solver-provided cluster metadata. Diagnostic
+clusters are deterministic and fixed after the solve:
+
+1. Partition active recipes by recipe category.
+2. Within each category, connect two recipes if one directly produces an item or
+   fluid consumed by the other.
+3. Each connected component is a diagnostic cluster.
+
+Cross-category producer/consumer relationships remain boundary flows instead of
+merging categories into one cluster. This keeps the first diagnostic heuristic
+simple and avoids turning dense dependency graphs into one large cluster.
+
+#### Cluster item nets and boundary rows
+
+For each cluster `c` and item or fluid `i`, compute the solved net cluster flow:
+
+```text
+net_ci = sum_{r in c} a_ir * x_r
+```
+
+Boundary rows are reported for each item or fluid present in the active recipes'
+coefficients:
+
+- `net_ci > eps`: boundary output, quantity `net_ci`.
+- `net_ci < -eps`: boundary input, quantity `net_ci`.
+- `abs(net_ci) <= eps`: zero-net row, quantity `0`, visible in diagnostics but
+  with zero flow and port cost.
+
+Zero-net rows are retained so users can see when local production and
+consumption cancel inside a cluster. Boundary rows classify each item as either
+input or output in this first implementation; bidirectional ports for the same
+cluster item are not modeled.
+
+#### Diagnostic cost defaults
+
+The first diagnostic defaults are intentionally simple:
+
+```text
+flow_cost_per_quantity = 1
+port_cost_per_boundary_type = 100
+recipe_size_penalty = 10
+boundary_type_size_penalty = 25
+target_active_recipes = [5, 15]
+target_boundary_item_types = [3, 8]
+```
+
+Port/type cost is intentionally much larger than flow quantity cost because the
+first heuristic should emphasize reducing distinct boundary item types before
+small throughput changes.
+
+For nonzero boundary rows, diagnostic flow cost is based on absolute net
+quantity and diagnostic port cost is based on distinct nonzero-net boundary item
+types. If one item has both output rows and input rows across clusters, the
+matched quantity is treated as an approximate cross-cluster exchange: half of the
+matched flow and port cost is attributed to output-side clusters and half to
+input-side clusters. Unmatched boundary quantity remains attributed to the owning
+cluster as external/final boundary diagnostic cost.
+
+This attribution is a diagnostic approximation inferred from solved item nets,
+not exact routing, transport, or layout. There are no transport variables in the
+current LP.
+
+Cluster size diagnostics are scalar penalties only. They do not reshape clusters
+or make a solve infeasible:
+
+```text
+recipe_count_penalty_c = recipe_size_penalty
+                       * max(0, target_min_recipes - active_recipe_count_c,
+                                active_recipe_count_c - target_max_recipes)
+
+boundary_type_penalty_c = boundary_type_size_penalty
+                        * max(0, target_min_boundary_types - boundary_type_count_c,
+                                 boundary_type_count_c - target_max_boundary_types)
+
+diagnostic_cluster_cost_c = recipe_count_penalty_c + boundary_type_penalty_c
+```
+
+`diagnostic_duplication_cost` is currently reported as `0` because this phase has
+no duplicated-recipe or duplicated-production model.
+
+Failure, infeasible, unbounded, non-optimal, solver-unavailable, and unexpected
+error results do not emit cluster diagnostics.
+
 ### Solver status and failures
 
-The solver must not silently accept infeasible or non-optimal statuses. In Phase
-3, the global recipe LP implementation should use a structured result object for
+The solver must not silently accept infeasible or non-optimal statuses. The
+global recipe LP implementation uses a structured result object for
 solver-unavailable, infeasible, unbounded, or non-optimal termination. Successful
-results should include objective value, objective components, selected `x_r`,
-external supplies, unmet demand, surplus, and balance residual diagnostics.
+results include objective value, objective components, selected `x_r`, external
+supplies, unmet demand, surplus, balance residual diagnostics, and post-solve
+cluster diagnostics when available.

@@ -22,6 +22,7 @@ from game_data_extractor.data_contracts.milestones import (
 from game_data_extractor.data_contracts.planning_adapter import (
     UNMET_DEMAND_PENALTY_RATE,
     accepted_early_pyanodon_inputs,
+    accepted_early_pyanodon_item_ids,
     dataset_to_factory_data_package,
 )
 from game_data_extractor.data_contracts.provenance_models import (
@@ -91,6 +92,7 @@ __all__ = [
     "UnlockCondition",
     "UnlockConditionType",
     "accepted_early_pyanodon_inputs",
+    "accepted_early_pyanodon_item_ids",
     "calculate_milestone_recipe_set",
     "dataset_to_factory_data_package",
     "load_factory_data_package",

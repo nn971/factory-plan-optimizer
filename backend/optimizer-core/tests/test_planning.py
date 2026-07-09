@@ -25,6 +25,7 @@ def test_conversion_aggregates_coefficients_and_input_policy() -> None:
             ItemPrototype("water", "fluid"),
             ItemPrototype("plate", "item"),
             ItemPrototype("kerogen", "item"),
+            ItemPrototype("raw-coal", "item"),
         ],
         recipes=[
             RecipePrototype(
@@ -45,7 +46,12 @@ def test_conversion_aggregates_coefficients_and_input_policy() -> None:
         ],
     )
 
-    assert accepted_early_pyanodon_inputs(dataset) == ("iron-ore", "kerogen", "water")
+    assert accepted_early_pyanodon_inputs(dataset) == (
+        "iron-ore",
+        "kerogen",
+        "raw-coal",
+        "water",
+    )
     package = dataset_to_factory_data_package(dataset, {"plate": 1.0})
 
     assert {item.id for item in package.items} == {
@@ -53,13 +59,19 @@ def test_conversion_aggregates_coefficients_and_input_policy() -> None:
         "water",
         "plate",
         "kerogen",
+        "raw-coal",
     }
     assert package.recipes[0].coefficients == {
         "iron-ore": -5.0,
         "water": -1.0,
         "plate": 2.0,
     }
-    assert set(package.external_supplies) == {"iron-ore", "water", "kerogen"}
+    assert set(package.external_supplies) == {
+        "iron-ore",
+        "water",
+        "kerogen",
+        "raw-coal",
+    }
     assert package.final_demands == {"plate": 1.0}
 
 
@@ -86,6 +98,72 @@ def test_relaxation_adds_consumed_input_until_solved() -> None:
     assert relaxed.result.unmet_demand["science"] == 0.0
     assert relaxed.result.recipe_rates["make-science"] > 0.0
     assert [step.added_input for step in relaxed.relaxation_steps] == ["catalyst"]
+
+
+def test_py_science_pack_1_policy_accepts_raw_coal() -> None:
+    dataset = OptimizerRecipeDataset(
+        items=[
+            ItemPrototype("raw-coal", "item"),
+            ItemPrototype("coal", "item"),
+            ItemPrototype("water", "fluid"),
+            ItemPrototype("iron-ore", "item"),
+            ItemPrototype("iron-plate", "item"),
+            ItemPrototype("copper-ore", "item"),
+            ItemPrototype("copper-plate", "item"),
+            ItemPrototype("py-science-pack-1", "item"),
+        ],
+        recipes=[
+            RecipePrototype(
+                "process-raw-coal",
+                "crafting",
+                1.0,
+                [
+                    RecipeCoefficient("raw-coal", -1.0, "input"),
+                    RecipeCoefficient("coal", 1.0, "output"),
+                ],
+                enabled=True,
+            ),
+            RecipePrototype(
+                "smelt-iron",
+                "smelting",
+                1.0,
+                [
+                    RecipeCoefficient("iron-ore", -1.0, "input"),
+                    RecipeCoefficient("iron-plate", 1.0, "output"),
+                ],
+                enabled=True,
+            ),
+            RecipePrototype(
+                "smelt-copper",
+                "smelting",
+                1.0,
+                [
+                    RecipeCoefficient("copper-ore", -1.0, "input"),
+                    RecipeCoefficient("copper-plate", 1.0, "output"),
+                ],
+                enabled=True,
+            ),
+            RecipePrototype(
+                "craft-py-science-pack-1",
+                "crafting",
+                1.0,
+                [
+                    RecipeCoefficient("iron-plate", -1.0, "input"),
+                    RecipeCoefficient("copper-plate", -1.0, "input"),
+                    RecipeCoefficient("coal", -1.0, "input"),
+                    RecipeCoefficient("water", -1.0, "input"),
+                    RecipeCoefficient("py-science-pack-1", 1.0, "output"),
+                ],
+                enabled=True,
+            ),
+        ],
+    )
+
+    plan = solve_planning_lp(dataset, {"py-science-pack-1": 1.0})
+
+    assert plan.result.unmet_demand["py-science-pack-1"] == 0.0
+    assert plan.result.recipe_rates["craft-py-science-pack-1"] == 1.0
+    assert plan.result.external_supplies["raw-coal"] == 1.0
 
 
 def test_plan_cli_smoke(tmp_path) -> None:  # noqa: ANN001

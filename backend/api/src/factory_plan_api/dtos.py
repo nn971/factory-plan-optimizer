@@ -18,7 +18,7 @@ class ExternalInputDto(BaseModel):
     capacity: float | None = Field(default=None, ge=0.0)
     source: (
         Literal[
-            "package_external_supply",
+            "default_input",
             "inferred_unproduced",
             "inferred_fluid",
         ]
@@ -160,6 +160,46 @@ class SolveQueuedDto(BaseModel):
     status: Literal["queued", "running", "succeeded", "failed"]
 
 
+class ClusterBoundaryItemDto(BaseModel):
+    item_id: str
+    direction: Literal["input", "output"]
+    is_zero_net: bool
+    quantity: float
+    flow_cost: float
+    port_cost: float
+
+
+class ClusterDto(BaseModel):
+    id: str
+    label: str
+    category: str
+    recipe_ids: list[str]
+    active_recipe_count: int
+    boundary_item_type_count: int
+    boundary_items: list[ClusterBoundaryItemDto]
+    diagnostic_components: dict[str, float]
+
+
+class ClusterCostDefaultsDto(BaseModel):
+    flow_cost_per_quantity: float
+    port_cost_per_boundary_type: float
+    recipe_size_penalty: float
+    boundary_type_size_penalty: float
+    target_active_recipes: list[int]
+    target_boundary_item_types: list[int]
+
+
+class ClusterDiagnosticsDto(BaseModel):
+    mode: Literal["diagnostic_only"]
+    active_epsilon: float
+    cost_defaults: ClusterCostDefaultsDto
+    diagnostic_components: dict[str, float]
+    base_objective_value: float
+    diagnostic_total: float
+    combined_diagnostic_objective_value: float
+    clusters: list[ClusterDto]
+
+
 class SolveResultDto(BaseModel):
     solver_status: str
     objective_value: float | None
@@ -169,6 +209,7 @@ class SolveResultDto(BaseModel):
     unmet_demand: dict[str, float]
     surplus: dict[str, float]
     balance_residuals: dict[str, float]
+    cluster_diagnostics: ClusterDiagnosticsDto | None = None
     message: str = ""
     details: str = ""
 

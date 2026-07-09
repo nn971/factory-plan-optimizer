@@ -30,8 +30,10 @@ type Notice = {
 type AppTab = 'solver' | 'explorer';
 
 type SavedEditableProblem = Pick<EditableProblem, 'solveMode' | 'displayRateUnits' | 'demands' | 'externalInputs'> & {
-  version: 1;
+  version: 2;
 };
+
+type SavedEditableProblemVersion = 1 | 2;
 
 export function App() {
   const [problem, setProblem] = useState<ProblemDto | null>(null);
@@ -70,7 +72,7 @@ export function App() {
 
   useEffect(() => {
     if (!editable || !storageKey) return;
-    const payload: SavedEditableProblem = { version: 1, ...editable };
+    const payload: SavedEditableProblem = { version: 2, ...editable };
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(payload));
     } catch {
@@ -698,8 +700,9 @@ function readSavedEditableProblem(key: string): SavedEditableProblem | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
     if (!isRecord(parsed)) return null;
+    const savedVersion = parsed.version;
     if (
-      parsed.version !== 1 ||
+      !isSupportedSavedEditableProblemVersion(savedVersion) ||
       (parsed.solveMode !== 'hard_demand' && parsed.solveMode !== 'soft_diagnostics') ||
       (parsed.displayRateUnits !== 'items_per_second' && parsed.displayRateUnits !== 'items_per_minute') ||
       !isRecord(parsed.demands) ||
@@ -720,7 +723,7 @@ function readSavedEditableProblem(key: string): SavedEditableProblem | null {
       }];
     });
     return {
-      version: 1,
+      version: 2,
       solveMode: parsed.solveMode,
       displayRateUnits: parsed.displayRateUnits,
       demands,
@@ -729,6 +732,10 @@ function readSavedEditableProblem(key: string): SavedEditableProblem | null {
   } catch {
     return null;
   }
+}
+
+function isSupportedSavedEditableProblemVersion(value: unknown): value is SavedEditableProblemVersion {
+  return value === 1 || value === 2;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -841,11 +848,12 @@ function friendlyItemName(itemId: string): string {
 function sourceLabel(source: string | null | undefined): string {
   switch (source) {
     case 'package_external_supply':
-      return 'package supply';
+    case 'default_input':
+      return 'Default input';
     case 'inferred_unproduced':
-      return 'inferred raw';
+      return 'Suggested';
     case 'inferred_fluid':
-      return 'inferred fluid';
+      return 'Suggested fluid';
     default:
       return 'candidate';
   }

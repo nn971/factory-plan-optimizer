@@ -6,6 +6,7 @@ import {
   type StatusSummary,
 } from '../../domain/solveOutcome';
 import { buildActiveFlowGraph } from '../../domain/solveResultFlow';
+import { ClusterDiagnosticsPanel } from './ClusterDiagnosticsPanel';
 import { FlowGraph } from './FlowGraph';
 import { RawResultTables } from './RawResultTables';
 
@@ -70,6 +71,7 @@ export function SolveResultPanel({
               <button type="button" onClick={onLoadExplorer}>{recipeDataActionLabel}</button>
             )}
           </section>
+          <ClusterDiagnosticsPanel result={job.result} />
           {graph && <FlowGraph key={job.job_id} graph={graph} result={job.result} />}
           <RawResultTables result={job.result} />
         </>

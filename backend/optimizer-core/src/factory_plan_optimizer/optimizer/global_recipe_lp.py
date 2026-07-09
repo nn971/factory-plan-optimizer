@@ -18,6 +18,10 @@ from pyomo.environ import (
     value,
 )
 
+from factory_plan_optimizer.optimizer.cluster_diagnostics import (
+    build_cluster_diagnostics,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
@@ -57,6 +61,7 @@ class GlobalRecipeLpResult:
     unmet_demand: Mapping[str, float] = field(default_factory=dict)
     surplus: Mapping[str, float] = field(default_factory=dict)
     balance_residuals: Mapping[str, float] = field(default_factory=dict)
+    cluster_diagnostics: Mapping[str, object] = field(default_factory=dict)
     message: str = ""
     details: str = ""
 
@@ -187,6 +192,11 @@ def _success(package: FactoryDataPackage, model: ConcreteModel) -> GlobalRecipeL
         unmet_demand=unmet_demand,
         surplus=surplus,
         balance_residuals=residuals,
+        cluster_diagnostics=build_cluster_diagnostics(
+            package,
+            recipe_rates,
+            base_objective_value=sum(components.values()),
+        ),
     )
 
 

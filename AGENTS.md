@@ -49,6 +49,7 @@
 
 - Use Python 3.12+, Pyomo for symbolic optimization models, and HiGHS as the default open-source solver.
 - Recipe coefficients are signed net production `a_ir`: positive outputs, negative inputs.
+- TURD recipes are Pyanodon-specific and should not get special-case code or predicates. Treat them like any other recipe according to normal enabled/unlock/milestone data; if they are disabled by default, doing nothing special is correct.
 - Global balance convention: `sum_r a_ir * x_r + external_supply_i = final_demand_i`; current LP implementation includes explicit `unmet_demand_i` and `surplus_i` diagnostics as documented in `docs/mathematical_model.md`.
 - Always report objective components by name: `raw_cost`, `production_cost`, `flow_cost`, `port_cost`, `cluster_cost`, `duplication_cost`, `unmet_demand_penalty`.
 - Do not silently accept infeasible, unbounded, solver-unavailable, or non-optimal statuses; return a structured failure/result or raise a clear exception as the surrounding module expects.

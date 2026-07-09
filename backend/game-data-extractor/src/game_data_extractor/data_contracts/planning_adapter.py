@@ -30,7 +30,9 @@ if TYPE_CHECKING:
 
 TOLERANCE = 1e-7
 UNMET_DEMAND_PENALTY_RATE = 1e9
-EXACT_ACCEPTED_INPUTS = frozenset({"water", "stone", "native-flora", "kerogen"})
+EXACT_ACCEPTED_INPUTS = frozenset(
+    {"water", "stone", "native-flora", "kerogen", "raw-coal"},
+)
 SCIENCE_MILESTONE_ORDER = (
     "automation-science-pack",
     "py-science-pack-1",
@@ -48,12 +50,21 @@ def accepted_early_pyanodon_inputs(dataset: OptimizerRecipeDataset) -> tuple[str
     """Return deterministic raw-ish external inputs for early Pyanodon planning."""
     item_names = {item.name for item in dataset.items}
     item_names.update(source.item_name for source in dataset.resource_sources)
+    return accepted_early_pyanodon_item_ids(tuple(item_names))
+
+
+def accepted_early_pyanodon_item_ids(item_ids: Sequence[str]) -> tuple[str, ...]:
+    """Return item ids allowed as early Pyanodon external inputs.
+
+    This is the single source of truth for both importer-generated external
+    supplies and API raw-input review candidates.
+    """
     accepted = {
-        name
-        for name in item_names
-        if name in EXACT_ACCEPTED_INPUTS
-        or name.endswith("-ore")
-        or name.startswith("ore-")
+        item_id
+        for item_id in item_ids
+        if item_id in EXACT_ACCEPTED_INPUTS
+        or item_id.endswith("-ore")
+        or item_id.startswith("ore-")
     }
     return tuple(sorted(accepted))
 

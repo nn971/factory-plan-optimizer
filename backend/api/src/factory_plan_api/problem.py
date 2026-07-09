@@ -9,6 +9,7 @@ from game_data_extractor.data_contracts import (
 )
 
 from factory_plan_api.dtos import (
+    ClusterDiagnosticsDto,
     ExternalInputDto,
     ItemDto,
     MilestoneDto,
@@ -114,7 +115,7 @@ def _raw_input_candidate(
             capacity=supply.capacity
             if supply.capacity is not None
             else DEFAULT_EXTERNAL_INPUT_CAPACITY,
-            source="package_external_supply",
+            source="default_input",
             default_approved=True,
         )
     return ExternalInputDto(
@@ -215,6 +216,9 @@ def _milestone_dtos(package: FactoryDataPackage) -> list[MilestoneDto]:
 
 
 def result_to_dto(result: GlobalRecipeLpResult) -> SolveResultDto:
+    cluster_diagnostics = _cluster_diagnostics_to_dto(
+        getattr(result, "cluster_diagnostics", {}),
+    )
     return SolveResultDto(
         solver_status=result.status,
         objective_value=result.objective_value,
@@ -224,6 +228,15 @@ def result_to_dto(result: GlobalRecipeLpResult) -> SolveResultDto:
         unmet_demand=dict(result.unmet_demand),
         surplus=dict(result.surplus),
         balance_residuals=dict(result.balance_residuals),
+        cluster_diagnostics=cluster_diagnostics,
         message=result.message,
         details=result.details,
     )
+
+
+def _cluster_diagnostics_to_dto(
+    diagnostics: object,
+) -> ClusterDiagnosticsDto | None:
+    if not diagnostics:
+        return None
+    return ClusterDiagnosticsDto.model_validate(diagnostics)

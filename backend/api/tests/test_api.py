@@ -16,6 +16,7 @@ from factory_plan_api.default_data import (
     load_default_factory_data,
 )
 from factory_plan_api.jobs import SolveJobStoreFullError
+from factory_plan_api.problem import result_to_dto
 
 if TYPE_CHECKING:
     import pytest
@@ -366,6 +367,32 @@ def test_solve_job_eventually_succeeds_for_curated_science_request(
         body["result"]["recipe_rates"]["craft-automation-science-pack"]
         == SCIENCE_TEST_RATE
     )
+    diagnostics = body["result"]["cluster_diagnostics"]
+    assert diagnostics is not None
+    assert diagnostics["mode"] == "diagnostic_only"
+    assert diagnostics["base_objective_value"] == body["result"]["objective_value"]
+    assert diagnostics["clusters"]
+    cluster = diagnostics["clusters"][0]
+    assert {
+        "id",
+        "label",
+        "category",
+        "recipe_ids",
+        "active_recipe_count",
+        "boundary_item_type_count",
+        "boundary_items",
+        "diagnostic_components",
+    } <= set(cluster)
+    if cluster["boundary_items"]:
+        boundary_item = cluster["boundary_items"][0]
+        assert {
+            "item_id",
+            "direction",
+            "is_zero_net",
+            "quantity",
+            "flow_cost",
+            "port_cost",
+        } <= set(boundary_item)
 
 
 def test_default_raw_input_candidates_have_sources() -> None:
@@ -378,14 +405,11 @@ def test_default_raw_input_candidates_have_sources() -> None:
     assert {"iron-ore", "copper-ore", "stone"} <= set(candidates)
     for item_id in ["iron-ore", "copper-ore", "stone"]:
         candidate = candidates[item_id]
-        assert candidate["source"] == "package_external_supply"
+        assert candidate["source"] == "default_input"
         assert candidate["enabled"] is True
         assert candidate["default_approved"] is True
         assert candidate["capacity"] > 0.0
-    if (
-        "water" in candidates
-        and candidates["water"]["source"] != "package_external_supply"
-    ):
+    if "water" in candidates and candidates["water"]["source"] != "default_input":
         assert candidates["water"]["cost"] == 0.0
 
 
@@ -396,7 +420,7 @@ def test_default_raw_input_candidates_have_default_caps() -> None:
     implicit_candidates = [
         candidate
         for candidate in body["raw_input_candidates"]
-        if candidate["source"] != "package_external_supply"
+        if candidate["source"] != "default_input"
     ]
     assert all(
         candidate["capacity"] == DEFAULT_EXTERNAL_INPUT_CAPACITY
@@ -453,7 +477,7 @@ def test_uploaded_problem_infers_unproduced_raw_candidates(
     package = _water_package()
     package["items"] = [
         {"id": "water", "kind": "fluid"},
-        {"id": "stone", "kind": "item"},
+        {"id": "sand", "kind": "item"},
     ]
     response = TestClient(app).post("/api/problem/package", json=package)
 
@@ -462,8 +486,8 @@ def test_uploaded_problem_infers_unproduced_raw_candidates(
     candidates = {
         candidate["item_id"]: candidate for candidate in body["raw_input_candidates"]
     }
-    assert candidates["stone"] == {
-        "item_id": "stone",
+    assert candidates["sand"] == {
+        "item_id": "sand",
         "kind": "item",
         "enabled": False,
         "cost": 1.0,
@@ -485,9 +509,17 @@ def test_uploaded_problem_excludes_coal_when_raw_coal_exists(
 
     assert response.status_code == HTTP_OK
     candidates = response.json()["problem"]["raw_input_candidates"]
-    candidate_ids = {candidate["item_id"] for candidate in candidates}
-    assert "raw-coal" in candidate_ids
-    assert "coal" not in candidate_ids
+    candidates = {candidate["item_id"]: candidate for candidate in candidates}
+    assert candidates["raw-coal"] == {
+        "item_id": "raw-coal",
+        "kind": "item",
+        "enabled": True,
+        "cost": 1.0,
+        "capacity": 10.0,
+        "source": "default_input",
+        "default_approved": True,
+    }
+    assert "coal" not in candidates
 
 
 def test_solve_uses_uploaded_package_not_default(
@@ -614,6 +646,7 @@ def test_solve_mode_defaults_to_hard_demand_for_uploaded_package(
     assert body["result"]["solver_status"] == "infeasible"
     assert body["result"]["objective_value"] is None
     assert body["result"]["unmet_demand"] == {}
+    assert body["result"]["cluster_diagnostics"] is None
 
 
 def test_solve_mode_soft_diagnostics_reports_unmet_demand(
@@ -642,10 +675,31 @@ def test_solve_mode_soft_diagnostics_reports_unmet_demand(
     assert body["status"] == "succeeded"
     assert body["result"]["solver_status"] == "optimal"
     assert body["result"]["unmet_demand"]["water"] == UNPRODUCIBLE_WATER_DEMAND
+    assert body["result"]["cluster_diagnostics"] is not None
     assert (
         body["result"]["objective_components"]["unmet_demand_penalty"]
         == UNPRODUCIBLE_WATER_PENALTY
     )
+
+
+def test_result_to_dto_accepts_missing_cluster_diagnostics() -> None:
+    @dataclass
+    class SolverResult:
+        status = "optimal"
+        objective_value: float = 0.0
+        objective_components: dict[str, float] = field(default_factory=dict)
+        recipe_rates: dict[str, float] = field(default_factory=dict)
+        external_supplies: dict[str, float] = field(default_factory=dict)
+        unmet_demand: dict[str, float] = field(default_factory=dict)
+        surplus: dict[str, float] = field(default_factory=dict)
+        balance_residuals: dict[str, float] = field(default_factory=dict)
+        message = ""
+        details = ""
+
+    dto = result_to_dto(SolverResult())  # type: ignore[arg-type]
+
+    assert dto.cluster_diagnostics is None
+    assert '"cluster_diagnostics":null' in dto.model_dump_json()
 
 
 def test_solve_rejects_invalid_solve_mode() -> None:

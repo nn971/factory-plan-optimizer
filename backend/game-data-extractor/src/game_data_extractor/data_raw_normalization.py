@@ -413,6 +413,8 @@ def _recipe_results(
 
 
 def _products(value: JsonValue, context: str) -> list[RawRecipeTerm]:
+    if value == {}:
+        return []
     products: list[RawRecipeTerm] = []
     for entry in _list(value, context):
         if (

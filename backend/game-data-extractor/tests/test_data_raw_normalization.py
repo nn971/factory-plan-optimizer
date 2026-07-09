@@ -179,6 +179,39 @@ def test_boiler_prototypes_emit_recipe_like_transforms() -> None:
     assert recipe.results[0].temperature == STEAM_TEMPERATURE
 
 
+def test_empty_object_recipe_terms_are_treated_as_empty_lists() -> None:
+    dataset = normalize_data_raw_dump(
+        json.dumps(
+            {
+                "item": {"saps": {"name": "saps"}},
+                "recipe": {
+                    "sap-01": {
+                        "category": "sap-extractor",
+                        "enabled": False,
+                        "energy_required": 80,
+                        "ingredients": {},
+                        "results": [{"type": "item", "name": "saps", "amount": 4}],
+                    },
+                },
+            },
+        ),
+    )
+
+    recipes = {recipe.name: recipe for recipe in dataset.recipes}
+    assert set(recipes) == {"sap-01"}
+    assert recipes["sap-01"].ingredients == ()
+    assert recipes["sap-01"].category == "sap-extractor"
+    assert {
+        coefficient.item_name: coefficient.amount
+        for coefficient in recipes["sap-01"].coefficients
+    } == {"saps": 4.0}
+    assert not [
+        diagnostic
+        for diagnostic in dataset.diagnostics
+        if diagnostic.code == "malformed-prototype"
+    ]
+
+
 def test_malformed_recipe_term_type_fails_clearly() -> None:
     dataset = normalize_data_raw_dump(
         json.dumps(

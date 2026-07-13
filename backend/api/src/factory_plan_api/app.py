@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from factory_plan_optimizer.optimizer.global_recipe_lp import solve_global_recipe_lp
 from factory_plan_optimizer.optimizer.optimized_clustering import optimize_clustering
+from factory_plan_optimizer.optimizer.sparse_clustering import run_sparse_clustering
 from fastapi import FastAPI, HTTPException, Request
 from game_data_extractor.data_contracts import (
     FactoryDataPackageParseError,
@@ -31,6 +32,7 @@ from factory_plan_api.problem import (
     package_with_edits,
     problem_from_package,
     result_to_dto,
+    sparse_clustering_config_from_dto,
 )
 
 if TYPE_CHECKING:
@@ -115,6 +117,14 @@ async def post_solve(request: SolveRequestDto) -> SolveQueuedDto:
             )
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+    sparse_clustering_config = None
+    if request.sparse_clustering is not None:
+        try:
+            sparse_clustering_config = sparse_clustering_config_from_dto(
+                request.sparse_clustering,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     def solve() -> SolveResultDto:
         result = solve_global_recipe_lp(package, solve_mode=request.solve_mode)
@@ -129,6 +139,54 @@ async def post_solve(request: SolveRequestDto) -> SolveQueuedDto:
                 parameters=optimized_clustering_parameters,
             )
             result = replace(result, optimized_clustering=optimized_clustering)
+        if is_success and sparse_clustering_config is not None:
+            try:
+                sparse_clustering = run_sparse_clustering(
+                    package,
+                    recipe_rates=result.recipe_rates,
+                    external_supplies=result.external_supplies,
+                    final_demands=package.final_demands,
+                    unmet_demand=result.unmet_demand,
+                    surplus=result.surplus,
+                    config=sparse_clustering_config,
+                )
+            except Exception:  # noqa: BLE001
+                sparse_clustering = {
+                    "status": "failed",
+                    "message": "sparse clustering failed",
+                    "mode": sparse_clustering_config.mode,
+                    "graph_type": sparse_clustering_config.graph_type,
+                    "optimization_effect": "none",
+                    "fallback_attempted": False,
+                    "fallback_mode": None,
+                    "warnings": [],
+                    "effective_config": {
+                        "mode": sparse_clustering_config.mode,
+                        "seed": sparse_clustering_config.seed,
+                        "max_runtime_seconds": (
+                            sparse_clustering_config.max_runtime_seconds
+                        ),
+                        "min_recipe_rate": sparse_clustering_config.min_recipe_rate,
+                        "hub_item_top_k": sparse_clustering_config.hub_item_top_k,
+                        "max_refinement_passes": (
+                            sparse_clustering_config.max_refinement_passes
+                        ),
+                        "port_cost_weight": sparse_clustering_config.port_cost_weight,
+                        "size_penalty_weight": (
+                            sparse_clustering_config.size_penalty_weight
+                        ),
+                        "flow_cost_weight": sparse_clustering_config.flow_cost_weight,
+                        "min_cluster_size_ratio": (
+                            sparse_clustering_config.min_cluster_size_ratio
+                        ),
+                        "max_cluster_size_ratio": (
+                            sparse_clustering_config.max_cluster_size_ratio
+                        ),
+                        "port_epsilon": sparse_clustering_config.port_epsilon,
+                        "result_caps": sparse_clustering_config.result_caps,
+                    },
+                }
+            result = replace(result, sparse_clustering=sparse_clustering)
         return result_to_dto(
             result,
         )

@@ -12,6 +12,7 @@ import { SolveResultPanel } from './solve-result/SolveResultPanel';
 import {
   createEditableProblem,
   DEFAULT_OPTIMIZED_CLUSTERING,
+  DEFAULT_SPARSE_CLUSTERING,
   displayRateToItemsPerSecond,
   findApprovedInputsMissingCapacity,
   hasPositiveDemand,
@@ -32,6 +33,7 @@ type AppTab = 'solver' | 'explorer';
 
 type SavedEditableProblem = Pick<EditableProblem, 'solveMode' | 'displayRateUnits' | 'demands' | 'externalInputs'> & {
   optimizedClustering?: EditableProblem['optimizedClustering'];
+  sparseClustering?: EditableProblem['sparseClustering'];
   version: 2 | 3;
 };
 
@@ -267,6 +269,17 @@ export function App() {
         ? {
             ...current,
             optimizedClustering: { ...current.optimizedClustering, ...patch },
+          }
+        : current,
+    );
+  }
+
+  function updateSparseClustering(patch: Partial<EditableProblem['sparseClustering']>) {
+    setEditable((current) =>
+      current
+        ? {
+            ...current,
+            sparseClustering: { ...current.sparseClustering, ...patch },
           }
         : current,
     );
@@ -531,6 +544,12 @@ export function App() {
             onChange={updateOptimizedClustering}
           />
 
+          <SparseClusteringControls
+            settings={editable?.sparseClustering ?? null}
+            disabled={!editable || loading}
+            onChange={updateSparseClustering}
+          />
+
           <section className="actions solve-actions" aria-label="Solve actions">
             <button
               type="button"
@@ -718,6 +737,7 @@ function createEditableProblemFromStorage(problem: ProblemDto): EditableProblem 
       };
     }),
     optimizedClustering: sanitizeSavedOptimizedClustering(saved.optimizedClustering),
+    sparseClustering: sanitizeSavedSparseClustering(saved.sparseClustering),
   };
 }
 
@@ -758,6 +778,9 @@ function readSavedEditableProblem(key: string): SavedEditableProblem | null {
       optimizedClustering: sanitizeSavedOptimizedClustering(
         isRecord(parsed.optimizedClustering) ? parsed.optimizedClustering : undefined,
       ),
+      sparseClustering: sanitizeSavedSparseClustering(
+        isRecord(parsed.sparseClustering) ? parsed.sparseClustering : undefined,
+      ),
     };
   } catch {
     return null;
@@ -785,6 +808,27 @@ function sanitizeSavedOptimizedClustering(value: unknown): EditableProblem['opti
     minClusterSize: typeof value.minClusterSize === 'string' ? value.minClusterSize : DEFAULT_OPTIMIZED_CLUSTERING.minClusterSize,
     maxClusterSize: typeof value.maxClusterSize === 'string' ? value.maxClusterSize : DEFAULT_OPTIMIZED_CLUSTERING.maxClusterSize,
     maxClusterSizeConstraint,
+  };
+}
+
+function sanitizeSavedSparseClustering(value: unknown): EditableProblem['sparseClustering'] {
+  if (!isRecord(value)) return { ...DEFAULT_SPARSE_CLUSTERING };
+  const mode = value.mode === 'balanced' || value.mode === 'exact-small' ? value.mode : 'fast';
+  return {
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : false,
+    mode,
+    targetClusterCount: typeof value.targetClusterCount === 'string' ? value.targetClusterCount : DEFAULT_SPARSE_CLUSTERING.targetClusterCount,
+    minClusterCount: typeof value.minClusterCount === 'string' ? value.minClusterCount : DEFAULT_SPARSE_CLUSTERING.minClusterCount,
+    maxClusterCount: typeof value.maxClusterCount === 'string' ? value.maxClusterCount : DEFAULT_SPARSE_CLUSTERING.maxClusterCount,
+    maxRuntimeSeconds: typeof value.maxRuntimeSeconds === 'string' ? value.maxRuntimeSeconds : DEFAULT_SPARSE_CLUSTERING.maxRuntimeSeconds,
+    hubItemTopK: typeof value.hubItemTopK === 'string' ? value.hubItemTopK : DEFAULT_SPARSE_CLUSTERING.hubItemTopK,
+    portCostWeight: typeof value.portCostWeight === 'string' ? value.portCostWeight : DEFAULT_SPARSE_CLUSTERING.portCostWeight,
+    sizePenaltyWeight: typeof value.sizePenaltyWeight === 'string' ? value.sizePenaltyWeight : DEFAULT_SPARSE_CLUSTERING.sizePenaltyWeight,
+    flowCostWeight: typeof value.flowCostWeight === 'string' ? value.flowCostWeight : DEFAULT_SPARSE_CLUSTERING.flowCostWeight,
+    minClusterSizeRatio: typeof value.minClusterSizeRatio === 'string' ? value.minClusterSizeRatio : DEFAULT_SPARSE_CLUSTERING.minClusterSizeRatio,
+    maxClusterSizeRatio: typeof value.maxClusterSizeRatio === 'string' ? value.maxClusterSizeRatio : DEFAULT_SPARSE_CLUSTERING.maxClusterSizeRatio,
+    maxRefinementPasses: typeof value.maxRefinementPasses === 'string' ? value.maxRefinementPasses : DEFAULT_SPARSE_CLUSTERING.maxRefinementPasses,
+    portEpsilon: typeof value.portEpsilon === 'string' ? value.portEpsilon : DEFAULT_SPARSE_CLUSTERING.portEpsilon,
   };
 }
 
@@ -864,6 +908,15 @@ function validateEditableProblem(editable: EditableProblem): Notice | null {
       return {
         title: 'Check optimized clustering settings',
         message: `Reporting epsilon must be 1e-9 to 1e-2, time limit 1 to 600 seconds, max cluster size must be positive, and min size cannot exceed max size. Fix: ${invalidOptimizedFields.join(', ')}.`,
+      };
+    }
+  }
+  if (editable.sparseClustering.enabled) {
+    const invalidSparseFields = invalidSparseClusteringFields(editable.sparseClustering);
+    if (invalidSparseFields.length > 0) {
+      return {
+        title: 'Check sparse clustering settings',
+        message: `Runtime must be 1 to 600 seconds, hub top-k must be positive, weights and port epsilon must be nonnegative, size ratios must be ordered, and cluster counts must be positive with target inside min/max bounds. Fix: ${invalidSparseFields.join(', ')}.`,
       };
     }
   }
@@ -952,6 +1005,76 @@ export function OptimizedClusteringControls({
   );
 }
 
+export function SparseClusteringControls({
+  settings,
+  disabled,
+  onChange,
+}: {
+  settings: EditableProblem['sparseClustering'] | null;
+  disabled: boolean;
+  onChange: (patch: Partial<EditableProblem['sparseClustering']>) => void;
+}) {
+  return (
+    <section className="panel optimized-clustering-controls" aria-labelledby="sparse-clustering-controls-title">
+      <div className="optimized-control-heading">
+        <div>
+          <p className="eyebrow">Optional explanation pass</p>
+          <h2 id="sparse-clustering-controls-title">Sparse clustering</h2>
+          <p className="muted">
+            Builds a capped recipe-to-recipe graph after the main solve. Best for reading large plans without rendering huge tables.
+          </p>
+        </div>
+        <label className="check inline optimized-enable">
+          <input
+            type="checkbox"
+            checked={settings?.enabled ?? false}
+            disabled={disabled || !settings}
+            onChange={(event) => onChange({ enabled: event.target.checked })}
+          />{' '}
+          Enable sparse clustering
+        </label>
+      </div>
+      {settings && (
+        <>
+          <fieldset className="preset-grid" disabled={disabled || !settings.enabled}>
+            <legend>Mode</legend>
+            <label className="check preset-card">
+              <input type="radio" name="sparse-mode" checked={settings.mode === 'fast'} onChange={() => onChange({ mode: 'fast' })} />
+              <span><strong>Fast</strong><small>Deterministic first pass for quick summaries.</small></span>
+            </label>
+            <label className="check preset-card">
+              <input type="radio" name="sparse-mode" checked={settings.mode === 'balanced'} onChange={() => onChange({ mode: 'balanced' })} />
+              <span><strong>Balanced</strong><small>Runs more port-aware refinement passes within the runtime budget.</small></span>
+            </label>
+            <label className="check preset-card">
+              <input type="radio" name="sparse-mode" checked={settings.mode === 'exact-small'} onChange={() => onChange({ mode: 'exact-small' })} />
+              <span><strong>Exact small</strong><small>Returns unsupported in this MVP unless the backend adds it later.</small></span>
+            </label>
+          </fieldset>
+          <details className="optimized-advanced">
+            <summary>Advanced sparse clustering settings</summary>
+            <div className="advanced-grid">
+              <NumericControl label="Target clusters" value={settings.targetClusterCount} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ targetClusterCount: value })} />
+              <NumericControl label="Min clusters" value={settings.minClusterCount} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ minClusterCount: value })} />
+              <NumericControl label="Max clusters" value={settings.maxClusterCount} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ maxClusterCount: value })} />
+              <NumericControl label="Max runtime seconds" value={settings.maxRuntimeSeconds} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ maxRuntimeSeconds: value })} />
+              <NumericControl label="Hub item top-k" value={settings.hubItemTopK} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ hubItemTopK: value })} />
+              <NumericControl label="Port cost weight" value={settings.portCostWeight} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ portCostWeight: value })} />
+              <NumericControl label="Size penalty weight" value={settings.sizePenaltyWeight} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ sizePenaltyWeight: value })} />
+              <NumericControl label="Flow cost weight" value={settings.flowCostWeight} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ flowCostWeight: value })} />
+              <NumericControl label="Min cluster size ratio" value={settings.minClusterSizeRatio} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ minClusterSizeRatio: value })} />
+              <NumericControl label="Max cluster size ratio" value={settings.maxClusterSizeRatio} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ maxClusterSizeRatio: value })} />
+              <NumericControl label="Max refinement passes" value={settings.maxRefinementPasses} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ maxRefinementPasses: value })} />
+              <NumericControl label="Port epsilon" value={settings.portEpsilon} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ portEpsilon: value })} />
+            </div>
+            <p className="muted">Port cost is the primary net-port pressure. Flow cost is optional and secondary. Size ratios discourage one giant cluster and tiny leftovers.</p>
+          </details>
+        </>
+      )}
+    </section>
+  );
+}
+
 function NumericControl({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (value: string) => void }) {
   return (
     <label>
@@ -976,6 +1099,51 @@ function invalidOptimizedClusteringFields(settings: EditableProblem['optimizedCl
   const max = Number(settings.maxClusterSize);
   if (Number.isFinite(min) && Number.isFinite(max) && min > max) invalid.push('min/max cluster size');
   return invalid;
+}
+
+function invalidSparseClusteringFields(settings: EditableProblem['sparseClustering']): string[] {
+  const checks: Array<[string, string, (value: string) => boolean]> = [
+    ['target clusters', settings.targetClusterCount, isValidOptionalPositiveNumber],
+    ['min clusters', settings.minClusterCount, isValidOptionalPositiveNumber],
+    ['max clusters', settings.maxClusterCount, isValidOptionalPositiveNumber],
+    ['runtime', settings.maxRuntimeSeconds, (value) => isNumberInRange(value, 1, 600)],
+    ['hub item top-k', settings.hubItemTopK, isValidRequiredPositiveNumber],
+    ['port cost weight', settings.portCostWeight, isValidRequiredNonnegativeNumber],
+    ['size penalty weight', settings.sizePenaltyWeight, isValidRequiredNonnegativeNumber],
+    ['flow cost weight', settings.flowCostWeight, isValidRequiredNonnegativeNumber],
+    ['min cluster size ratio', settings.minClusterSizeRatio, isValidRequiredNonnegativeNumber],
+    ['max cluster size ratio', settings.maxClusterSizeRatio, isValidRequiredNonnegativeNumber],
+    ['max refinement passes', settings.maxRefinementPasses, isValidOptionalNonnegativeInteger],
+    ['port epsilon', settings.portEpsilon, isValidRequiredNonnegativeNumber],
+  ];
+  const invalid = checks.filter(([, value, isValid]) => !isValid(value)).map(([label]) => label);
+  const min = optionalNumber(settings.minClusterCount);
+  const max = optionalNumber(settings.maxClusterCount);
+  const target = optionalNumber(settings.targetClusterCount);
+  if (min != null && max != null && min > max) invalid.push('min/max clusters');
+  if (target != null && min != null && target < min) invalid.push('target below min clusters');
+  if (target != null && max != null && target > max) invalid.push('target above max clusters');
+  const minRatio = Number(settings.minClusterSizeRatio);
+  const maxRatio = Number(settings.maxClusterSizeRatio);
+  if (Number.isFinite(minRatio) && Number.isFinite(maxRatio) && minRatio > maxRatio) invalid.push('min/max size ratio');
+  return invalid;
+}
+
+function isValidOptionalNonnegativeInteger(value: string): boolean {
+  if (value.trim() === '') return true;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0;
+}
+
+function isValidOptionalPositiveNumber(value: string): boolean {
+  if (value.trim() === '') return true;
+  return isValidRequiredPositiveNumber(value);
+}
+
+function optionalNumber(value: string): number | null {
+  if (value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function isNumberInRange(value: string, min: number, max: number): boolean {

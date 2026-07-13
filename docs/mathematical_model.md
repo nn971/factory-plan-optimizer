@@ -205,6 +205,17 @@ no duplicated-recipe or duplicated-production model.
 Failure, infeasible, unbounded, non-optimal, solver-unavailable, and unexpected
 error results do not emit cluster diagnostics.
 
+### Sparse graph clustering diagnostics
+
+Sparse clustering is also a post-solve explanation layer. It assigns solved active
+recipes to clusters using a net-balance port objective: positive cluster item net is
+an output net port, negative net is an input net port, and near-zero net is no port.
+The sparse objective is diagnostic-only and does not add LP variables, constraints,
+or global objective terms. Recipe-to-recipe sparse graph flows remain proportional
+diagnostics/affinity hints rather than exact routed crossing flow. Behavior, tuning
+fields, caps, and limitations are documented in
+`docs/sparse_graph_clustering.md`.
+
 ## Internal second-stage optimized clustering MILP
 
 Optimizer-core also contains a second-stage clustering model that can run after a

@@ -10,6 +10,8 @@ import { ClusterDiagnosticsPanel } from './ClusterDiagnosticsPanel';
 import { FlowGraph } from './FlowGraph';
 import { OptimizedClusteringPanel } from './OptimizedClusteringPanel';
 import { RawResultTables } from './RawResultTables';
+import { SparseBoundaryItemReviewPanel } from './SparseBoundaryItemReviewPanel';
+import { SparseClusteringPanel } from './SparseClusteringPanel';
 
 export function SolveResultPanel({
   job,
@@ -36,6 +38,7 @@ export function SolveResultPanel({
   const graph = graphStatus.tone === 'success' && job.result && explorer
     ? buildActiveFlowGraph(job.result, explorer)
     : null;
+  const hasSuccessfulSparseClustering = job.result?.sparse_clustering?.status === 'success';
 
   return (
     <div className="result">
@@ -73,7 +76,12 @@ export function SolveResultPanel({
             )}
           </section>
           <OptimizedClusteringPanel result={job.result.optimized_clustering} />
-          <ClusterDiagnosticsPanel result={job.result} />
+          <SparseClusteringPanel result={job.result.sparse_clustering} />
+          {hasSuccessfulSparseClustering ? (
+            <SparseBoundaryItemReviewPanel result={job.result.sparse_clustering} />
+          ) : (
+            <ClusterDiagnosticsPanel result={job.result} />
+          )}
           {graph && <FlowGraph key={job.job_id} graph={graph} result={job.result} />}
           <RawResultTables result={job.result} />
         </>

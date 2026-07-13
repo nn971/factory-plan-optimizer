@@ -179,6 +179,75 @@ class OptimizedClusteringConfigDto(BaseModel):
         return trimmed
 
 
+class SparseClusteringConfigDto(BaseModel):
+    enabled: StrictBool = False
+    mode: Literal["fast", "balanced", "exact-small"] = "fast"
+    target_cluster_count: int | None = Field(default=None, gt=0)
+    min_cluster_count: int | None = Field(default=None, gt=0)
+    max_cluster_count: int | None = Field(default=None, gt=0)
+    max_runtime_seconds: float = Field(default=5.0, gt=0.0, le=600.0)
+    min_recipe_rate: float = Field(default=1e-9, ge=0.0)
+    hub_item_top_k: int = Field(default=100, gt=0)
+    port_cost_weight: float = Field(default=1000.0, ge=0.0)
+    size_penalty_weight: float = Field(default=10.0, ge=0.0)
+    flow_cost_weight: float = Field(default=0.0, ge=0.0)
+    min_cluster_size_ratio: float = Field(default=0.5, ge=0.0)
+    max_cluster_size_ratio: float = Field(default=1.5, ge=0.0)
+    max_refinement_passes: int | None = Field(default=None, ge=0)
+    port_epsilon: float = Field(default=1e-9, ge=0.0)
+    seed: int = 0
+    result_caps: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator(
+        "max_runtime_seconds",
+        "min_recipe_rate",
+        "port_cost_weight",
+        "size_penalty_weight",
+        "flow_cost_weight",
+        "min_cluster_size_ratio",
+        "max_cluster_size_ratio",
+        "port_epsilon",
+    )
+    @classmethod
+    def numeric_values_must_be_finite(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("sparse clustering numeric values must be finite")
+        return value
+
+    @field_validator("result_caps")
+    @classmethod
+    def result_caps_must_be_nonnegative(cls, value: dict[str, int]) -> dict[str, int]:
+        invalid = sorted(key for key, cap in value.items() if cap < 0)
+        if invalid:
+            raise ValueError(f"result caps must be nonnegative: {', '.join(invalid)}")
+        return value
+
+    @model_validator(mode="after")
+    def cluster_counts_must_be_consistent(self) -> SparseClusteringConfigDto:
+        if (
+            self.min_cluster_count is not None
+            and self.max_cluster_count is not None
+            and self.min_cluster_count > self.max_cluster_count
+        ):
+            raise ValueError("min_cluster_count must not exceed max_cluster_count")
+        if self.target_cluster_count is not None and (
+            (
+                self.min_cluster_count is not None
+                and self.target_cluster_count < self.min_cluster_count
+            )
+            or (
+                self.max_cluster_count is not None
+                and self.target_cluster_count > self.max_cluster_count
+            )
+        ):
+            raise ValueError("target_cluster_count must be within min/max bounds")
+        if self.min_cluster_size_ratio > self.max_cluster_size_ratio:
+            raise ValueError(
+                "min_cluster_size_ratio must not exceed max_cluster_size_ratio",
+            )
+        return self
+
+
 class SolveRequestDto(BaseModel):
     package_id: str | None = None
     selected_milestone: str | None = None
@@ -186,6 +255,7 @@ class SolveRequestDto(BaseModel):
     demands: dict[str, float] = Field(default_factory=dict)
     external_inputs: list[ExternalInputDto] = Field(default_factory=list)
     optimized_clustering: OptimizedClusteringConfigDto | None = None
+    sparse_clustering: SparseClusteringConfigDto | None = None
 
     @field_validator("demands")
     @classmethod
@@ -284,6 +354,57 @@ class OptimizedClusteringResultDto(BaseModel):
     model_size: dict[str, object] | None = None
 
 
+class SparseCappedArrayDto(BaseModel):
+    items: list[dict[str, object]]
+    total_count: int
+    truncated: bool
+
+
+class SparsePortAwareObjectiveDto(BaseModel):
+    port_cost: float
+    size_penalty: float
+    flow_cost: float
+    total_score: float
+    net_port_count: int
+    refinement_passes: int
+
+
+class SparseClusteringResultDto(BaseModel):
+    status: Literal[
+        "success",
+        "skipped",
+        "model_too_large",
+        "timeout",
+        "unsupported",
+        "failed",
+    ]
+    message: str
+    mode: Literal["fast", "balanced", "exact-small"]
+    graph_type: Literal["recipe-to-recipe"]
+    optimization_effect: Literal["none"]
+    fallback_attempted: bool
+    fallback_mode: Literal["fast"] | None = None
+    fallback: dict[str, str] | None = None
+    engine: str | None = None
+    cluster_count: int | None = None
+    target_cluster_count: int | None = None
+    effective_config: dict[str, object]
+    warnings: list[str]
+    quality: dict[str, float] | None = None
+    boundary_port_type_count: int | None = None
+    net_port_count: int | None = None
+    external_boundary_port_type_count: int | None = None
+    port_aware_objective: SparsePortAwareObjectiveDto | None = None
+    graph_statistics: dict[str, object] | None = None
+    cluster_summaries: SparseCappedArrayDto | None = None
+    recipe_assignments: SparseCappedArrayDto | None = None
+    boundary_flows: SparseCappedArrayDto | None = None
+    boundary_port_types: SparseCappedArrayDto | None = None
+    external_boundary_port_types: SparseCappedArrayDto | None = None
+    surplus_unmet_summary: SparseCappedArrayDto | None = None
+    hub_summaries: SparseCappedArrayDto | None = None
+
+
 class SolveResultDto(BaseModel):
     solver_status: str
     objective_value: float | None
@@ -295,6 +416,7 @@ class SolveResultDto(BaseModel):
     balance_residuals: dict[str, float]
     cluster_diagnostics: ClusterDiagnosticsDto | None = None
     optimized_clustering: OptimizedClusteringResultDto | None = None
+    sparse_clustering: SparseClusteringResultDto | None = None
     message: str = ""
     details: str = ""
 

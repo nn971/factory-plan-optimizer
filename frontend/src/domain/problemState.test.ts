@@ -52,6 +52,10 @@ describe('toSolveRequest', () => {
     expect(toSolveRequest(editableProblem())).not.toHaveProperty('optimized_clustering');
   });
 
+  it('omits sparse clustering config by default', () => {
+    expect(toSolveRequest(editableProblem())).not.toHaveProperty('sparse_clustering');
+  });
+
   it('submits optimized clustering config only when enabled', () => {
     expect(
       toSolveRequest({
@@ -87,6 +91,45 @@ describe('toSolveRequest', () => {
       max_cluster_size_constraint: 'hard',
     });
   });
+
+  it('submits sparse clustering config only when enabled', () => {
+    expect(
+      toSolveRequest({
+        ...editableProblem(),
+        sparseClustering: {
+          enabled: true,
+          mode: 'balanced',
+          targetClusterCount: '4',
+          minClusterCount: '2',
+          maxClusterCount: '8',
+          maxRuntimeSeconds: '5',
+          hubItemTopK: '50',
+          portCostWeight: '1200',
+          sizePenaltyWeight: '12',
+          flowCostWeight: '0.5',
+          minClusterSizeRatio: '0.4',
+          maxClusterSizeRatio: '1.8',
+          maxRefinementPasses: '6',
+          portEpsilon: '0.000001',
+        },
+      }).sparse_clustering,
+    ).toEqual({
+      enabled: true,
+      mode: 'balanced',
+      target_cluster_count: 4,
+      min_cluster_count: 2,
+      max_cluster_count: 8,
+      max_runtime_seconds: 5,
+      hub_item_top_k: 50,
+      port_cost_weight: 1200,
+      size_penalty_weight: 12,
+      flow_cost_weight: 0.5,
+      min_cluster_size_ratio: 0.4,
+      max_cluster_size_ratio: 1.8,
+      max_refinement_passes: 6,
+      port_epsilon: 0.000001,
+    });
+  });
 });
 
 function editableProblem(): EditableProblem {
@@ -108,6 +151,22 @@ function editableProblem(): EditableProblem {
       minClusterSize: '5',
       maxClusterSize: '15',
       maxClusterSizeConstraint: 'soft',
+    },
+    sparseClustering: {
+      enabled: false,
+      mode: 'fast',
+      targetClusterCount: '',
+      minClusterCount: '',
+      maxClusterCount: '',
+      maxRuntimeSeconds: '5',
+      hubItemTopK: '100',
+      portCostWeight: '1000',
+      sizePenaltyWeight: '10',
+      flowCostWeight: '0',
+      minClusterSizeRatio: '0.5',
+      maxClusterSizeRatio: '1.5',
+      maxRefinementPasses: '8',
+      portEpsilon: '0.000000001',
     },
   };
 }

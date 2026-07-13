@@ -112,6 +112,43 @@ export type OptimizedClusteringConfigDto = {
   splittable_recipe_ids?: string[];
 };
 
+export type SparseClusteringModeDto = 'fast' | 'balanced' | 'exact-small';
+
+
+export type SparseClusteringStatusDto =
+  | 'success'
+  | 'skipped'
+  | 'model_too_large'
+  | 'timeout'
+  | 'unsupported'
+  | 'failed';
+
+export type SparseClusteringConfigDto = {
+  enabled: boolean;
+  mode?: SparseClusteringModeDto;
+  target_cluster_count?: number | null;
+  min_cluster_count?: number | null;
+  max_cluster_count?: number | null;
+  max_runtime_seconds?: number | null;
+  min_recipe_rate?: number | null;
+  hub_item_top_k?: number | null;
+  port_cost_weight?: number | null;
+  size_penalty_weight?: number | null;
+  flow_cost_weight?: number | null;
+  min_cluster_size_ratio?: number | null;
+  max_cluster_size_ratio?: number | null;
+  max_refinement_passes?: number | null;
+  port_epsilon?: number | null;
+  seed?: number | null;
+  result_caps?: Record<string, number>;
+};
+
+export type SparseCappedArrayDto<TItem extends Record<string, unknown> = Record<string, unknown>> = {
+  items: TItem[];
+  total_count: number;
+  truncated: boolean;
+};
+
 export type ProblemDto = {
   package_id?: string | null;
   scenario_id?: string | null;
@@ -136,6 +173,7 @@ export type SolveRequestDto = {
   demands: Record<string, number>;
   external_inputs: ExternalInputDto[];
   optimized_clustering?: OptimizedClusteringConfigDto | null;
+  sparse_clustering?: SparseClusteringConfigDto | null;
 };
 
 export type PackageProblemDto = { package_id: string; problem: ProblemDto };
@@ -233,6 +271,89 @@ export type OptimizedClusteringResultDto = {
   model_size?: Record<string, unknown> | null;
 };
 
+export type SparseClusterSummaryDto = {
+  cluster_id: number | string;
+  recipe_count: number;
+  recipe_ids: string[];
+  net_input_port_count?: number;
+  net_output_port_count?: number;
+  net_port_count?: number;
+};
+
+export type SparseRecipeAssignmentDto = {
+  recipe_id: string;
+  cluster_id: number | string;
+};
+
+export type SparseBoundaryFlowDto = {
+  source_cluster_id: number | string;
+  target_cluster_id: number | string;
+  item_id: string;
+  estimated_flow: number;
+};
+
+export type SparseBoundaryPortTypeDto = {
+  cluster_id: number | string;
+  item_id: string;
+  direction: 'input' | 'output' | string;
+  net_amount?: number;
+};
+
+export type SparseExternalBoundaryPortTypeDto = SparseBoundaryPortTypeDto & {
+  source_or_demand_amount: number;
+};
+
+export type SparseSurplusUnmetSummaryDto = {
+  item_id: string;
+  surplus: number;
+  unmet_demand: number;
+};
+
+export type SparseHubSummaryDto = {
+  item_id: string;
+  kept_count: number;
+  skipped_count: number;
+  skipped_estimated_flow: number;
+};
+
+export type SparsePortAwareObjectiveDto = {
+  port_cost: number;
+  size_penalty: number;
+  flow_cost: number;
+  total_score: number;
+  net_port_count: number;
+  refinement_passes: number;
+};
+
+export type SparseClusteringResultDto = {
+  status: SparseClusteringStatusDto;
+  message: string;
+  mode: SparseClusteringModeDto;
+  graph_type: 'recipe-to-recipe';
+  optimization_effect: 'none';
+  fallback_attempted: boolean;
+  fallback_mode: 'fast' | null;
+  fallback: Record<string, string> | null;
+  engine: string | null;
+  cluster_count: number | null;
+  target_cluster_count: number | null;
+  effective_config: Record<string, unknown>;
+  warnings: string[];
+  quality: Record<string, number> | null;
+  boundary_port_type_count: number | null;
+  net_port_count?: number | null;
+  port_aware_objective?: SparsePortAwareObjectiveDto | null;
+  external_boundary_port_type_count: number | null;
+  graph_statistics: Record<string, unknown> | null;
+  cluster_summaries?: SparseCappedArrayDto<SparseClusterSummaryDto> | null;
+  recipe_assignments?: SparseCappedArrayDto<SparseRecipeAssignmentDto> | null;
+  boundary_flows?: SparseCappedArrayDto<SparseBoundaryFlowDto> | null;
+  boundary_port_types?: SparseCappedArrayDto<SparseBoundaryPortTypeDto> | null;
+  external_boundary_port_types?: SparseCappedArrayDto<SparseExternalBoundaryPortTypeDto> | null;
+  surplus_unmet_summary?: SparseCappedArrayDto<SparseSurplusUnmetSummaryDto> | null;
+  hub_summaries?: SparseCappedArrayDto<SparseHubSummaryDto> | null;
+};
+
 export type SolveResultDto = {
   solver_status: string;
   objective_value: number | null;
@@ -244,6 +365,7 @@ export type SolveResultDto = {
   balance_residuals: Record<string, number>;
   cluster_diagnostics?: ClusterDiagnosticsDto | null;
   optimized_clustering?: OptimizedClusteringResultDto | null;
+  sparse_clustering?: SparseClusteringResultDto | null;
   message?: string;
   details?: string;
 };

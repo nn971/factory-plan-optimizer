@@ -156,6 +156,16 @@ Optimized clustering external rows currently use the conservative
 balance against the outside of the cluster system; they are not exact raw-supply,
 final-demand, surplus, or unmet-demand routes.
 
+Sparse graph clustering is a separate explanation-first post-solve feature, not a
+new `FactoryDataPackage` field. It assigns active recipes from LP results and
+reports capped diagnostic arrays through the solve API. Its compatibility field
+`boundary_port_type_count` now means net port count from cluster item balances;
+`net_port_count` is the explicit alias. Net-port objective components are reported
+under `port_aware_objective` as `port_cost`, `size_penalty`, `flow_cost`, and
+`total_score`. External boundary rows expose `source_or_demand_amount`; that value
+is diagnostics-only and does not add objective ports. See
+`docs/sparse_graph_clustering.md` for behavior, tuning fields, and limitations.
+
 Optimized clustering keeps solved recipe totals fixed. Recipes are assigned whole
 to one cluster by default; request parameters may allow all recipes to split with
 `allow_recipe_splitting` or allow only specific recipes via

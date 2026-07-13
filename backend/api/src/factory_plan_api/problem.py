@@ -18,12 +18,17 @@ from factory_plan_api.dtos import (
     OptimizedClusteringResultDto,
     ProblemDto,
     SolveResultDto,
+    SparseClusteringConfigDto,
+    SparseClusteringResultDto,
 )
 
 if TYPE_CHECKING:
     from factory_plan_optimizer.optimizer.global_recipe_lp import GlobalRecipeLpResult
     from factory_plan_optimizer.optimizer.optimized_clustering import (
         OptimizedClusteringParameters,
+    )
+    from factory_plan_optimizer.optimizer.sparse_clustering import (
+        SparseClusteringConfig,
     )
 
 
@@ -238,6 +243,9 @@ def result_to_dto(result: GlobalRecipeLpResult) -> SolveResultDto:
         optimized_clustering=_optimized_clustering_to_dto(
             getattr(result, "optimized_clustering", None),
         ),
+        sparse_clustering=_sparse_clustering_to_dto(
+            getattr(result, "sparse_clustering", None),
+        ),
         message=result.message,
         details=result.details,
     )
@@ -266,6 +274,18 @@ def optimized_clustering_parameters_from_dto(
     return parameters
 
 
+def sparse_clustering_config_from_dto(
+    config: SparseClusteringConfigDto,
+) -> SparseClusteringConfig:
+    from factory_plan_optimizer.optimizer.sparse_clustering import (  # noqa: PLC0415
+        SparseClusteringConfig,
+    )
+
+    sparse_config = SparseClusteringConfig(**config.model_dump())
+    sparse_config.validate()
+    return sparse_config
+
+
 def _optimized_clustering_to_dto(result: object) -> OptimizedClusteringResultDto | None:
     if not result:
         return None
@@ -276,3 +296,40 @@ def _optimized_clustering_to_dto(result: object) -> OptimizedClusteringResultDto
         sanitized["message"] = "optimized clustering solver is unavailable"
         sanitized["details"] = ""
     return OptimizedClusteringResultDto.model_validate(sanitized)
+
+
+def _sparse_clustering_to_dto(result: object) -> SparseClusteringResultDto | None:
+    if not result or not isinstance(result, Mapping):
+        return None
+    sanitized: dict[str, Any] = dict(result)
+    sanitized.pop("details", None)
+    sanitized["message"] = _safe_sparse_message(sanitized)
+    external_ports = sanitized.get("external_boundary_port_types")
+    if isinstance(external_ports, Mapping):
+        items = external_ports.get("items")
+        if isinstance(items, list):
+            external_ports = dict(external_ports)
+            external_ports["items"] = [
+                _rename_external_amount(row)
+                for row in items
+                if isinstance(row, Mapping)
+            ]
+            sanitized["external_boundary_port_types"] = external_ports
+    return SparseClusteringResultDto.model_validate(sanitized)
+
+
+def _safe_sparse_message(result: Mapping[str, Any]) -> str:
+    status = result.get("status")
+    message = result.get("message")
+    if status == "failed":
+        return "sparse clustering failed"
+    if isinstance(message, str):
+        return message.splitlines()[0][:200]
+    return ""
+
+
+def _rename_external_amount(row: Mapping[str, Any]) -> dict[str, Any]:
+    copied = dict(row)
+    if "amount" in copied:
+        copied["source_or_demand_amount"] = copied.pop("amount")
+    return copied

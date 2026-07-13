@@ -1,4 +1,4 @@
-import type { ExternalInputDto, MaxClusterSizeConstraintDto, OptimizedClusteringPresetDto, ProblemDto, SolveModeDto, SolveRequestDto } from '../api/dtos';
+import type { ExternalInputDto, MaxClusterSizeConstraintDto, OptimizedClusteringPresetDto, ProblemDto, SolveModeDto, SolveRequestDto, SparseClusteringModeDto } from '../api/dtos';
 
 export type DisplayRateUnits = 'items_per_second' | 'items_per_minute';
 
@@ -18,6 +18,7 @@ export type EditableProblem = {
   demands: Record<string, string>;
   externalInputs: EditableExternalInput[];
   optimizedClustering: EditableOptimizedClustering;
+  sparseClustering: EditableSparseClustering;
 };
 
 export type EditableOptimizedClustering = {
@@ -35,6 +36,23 @@ export type EditableOptimizedClustering = {
   maxClusterSizeConstraint: MaxClusterSizeConstraintDto;
 };
 
+export type EditableSparseClustering = {
+  enabled: boolean;
+  mode: SparseClusteringModeDto;
+  targetClusterCount: string;
+  minClusterCount: string;
+  maxClusterCount: string;
+  maxRuntimeSeconds: string;
+  hubItemTopK: string;
+  portCostWeight: string;
+  sizePenaltyWeight: string;
+  flowCostWeight: string;
+  minClusterSizeRatio: string;
+  maxClusterSizeRatio: string;
+  maxRefinementPasses: string;
+  portEpsilon: string;
+};
+
 export const DEFAULT_OPTIMIZED_CLUSTERING: EditableOptimizedClustering = {
   enabled: false,
   allowRecipeSplitting: false,
@@ -48,6 +66,23 @@ export const DEFAULT_OPTIMIZED_CLUSTERING: EditableOptimizedClustering = {
   minClusterSize: '5',
   maxClusterSize: '15',
   maxClusterSizeConstraint: 'soft',
+};
+
+export const DEFAULT_SPARSE_CLUSTERING: EditableSparseClustering = {
+  enabled: false,
+  mode: 'fast',
+  targetClusterCount: '',
+  minClusterCount: '',
+  maxClusterCount: '',
+  maxRuntimeSeconds: '5',
+  hubItemTopK: '100',
+  portCostWeight: '1000',
+  sizePenaltyWeight: '10',
+  flowCostWeight: '0',
+  minClusterSizeRatio: '0.5',
+  maxClusterSizeRatio: '1.5',
+  maxRefinementPasses: '8',
+  portEpsilon: '0.000000001',
 };
 
 export function createEditableProblem(problem: ProblemDto): EditableProblem {
@@ -72,6 +107,7 @@ export function createEditableProblem(problem: ProblemDto): EditableProblem {
       defaultApproved: input.default_approved ?? false,
     })),
     optimizedClustering: { ...DEFAULT_OPTIMIZED_CLUSTERING },
+    sparseClustering: { ...DEFAULT_SPARSE_CLUSTERING },
   };
 }
 
@@ -98,6 +134,24 @@ export function toSolveRequest(
         splittable_recipe_ids: parseRecipeIdList(editable.optimizedClustering.splittableRecipeIds),
       }
     : undefined;
+  const sparseClustering = editable.sparseClustering.enabled
+    ? {
+        enabled: true,
+        mode: editable.sparseClustering.mode,
+        target_cluster_count: parseOptionalPositiveNumber(editable.sparseClustering.targetClusterCount),
+        min_cluster_count: parseOptionalPositiveNumber(editable.sparseClustering.minClusterCount),
+        max_cluster_count: parseOptionalPositiveNumber(editable.sparseClustering.maxClusterCount),
+        max_runtime_seconds: parsePositiveNumber(editable.sparseClustering.maxRuntimeSeconds),
+        hub_item_top_k: parsePositiveNumber(editable.sparseClustering.hubItemTopK),
+        port_cost_weight: parseNonnegativeNumber(editable.sparseClustering.portCostWeight),
+        size_penalty_weight: parseNonnegativeNumber(editable.sparseClustering.sizePenaltyWeight),
+        flow_cost_weight: parseNonnegativeNumber(editable.sparseClustering.flowCostWeight),
+        min_cluster_size_ratio: parseNonnegativeNumber(editable.sparseClustering.minClusterSizeRatio),
+        max_cluster_size_ratio: parseNonnegativeNumber(editable.sparseClustering.maxClusterSizeRatio),
+        max_refinement_passes: parseOptionalNonnegativeInteger(editable.sparseClustering.maxRefinementPasses),
+        port_epsilon: parseNonnegativeNumber(editable.sparseClustering.portEpsilon),
+      }
+    : undefined;
   return {
     package_id: packageId ?? undefined,
     ...(trimmedMilestone ? { selected_milestone: trimmedMilestone } : {}),
@@ -120,6 +174,7 @@ export function toSolveRequest(
       default_approved: input.defaultApproved,
     })),
     ...(optimizedClustering ? { optimized_clustering: optimizedClustering } : {}),
+    ...(sparseClustering ? { sparse_clustering: sparseClustering } : {}),
   };
 }
 
@@ -176,6 +231,18 @@ function safeKeyPart(value: string | null | undefined, fallback: string): string
 function parseOptionalNonnegativeNumber(value: string): number | null {
   if (value.trim() === '') return null;
   return parseNonnegativeNumber(value);
+}
+
+function parseOptionalPositiveNumber(value: string): number | null {
+  if (value.trim() === '') return null;
+  const parsed = parsePositiveNumber(value);
+  return parsed > 0 ? parsed : null;
+}
+
+function parseOptionalNonnegativeInteger(value: string): number | null {
+  if (value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function parseNonnegativeNumber(value: string): number {

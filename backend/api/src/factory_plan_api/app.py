@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from factory_plan_optimizer.optimizer.global_recipe_lp import solve_global_recipe_lp
+from factory_plan_optimizer.optimizer.optimized_clustering import optimize_clustering
 from fastapi import FastAPI, HTTPException, Request
 from game_data_extractor.data_contracts import (
     FactoryDataPackageParseError,
@@ -26,6 +27,7 @@ from factory_plan_api.jobs import SolveJobStore, SolveJobStoreFullError
 from factory_plan_api.problem import (
     DEFAULT_PACKAGE_ID,
     DEFAULT_SCENARIO_ID,
+    optimized_clustering_parameters_from_dto,
     package_with_edits,
     problem_from_package,
     result_to_dto,
@@ -105,10 +107,30 @@ async def get_explorer() -> ExplorerResponseDto:
 @app.post("/api/solve", response_model=SolveQueuedDto)
 async def post_solve(request: SolveRequestDto) -> SolveQueuedDto:
     package = _package_from_request(request)
+    optimized_clustering_parameters = None
+    if request.optimized_clustering is not None:
+        try:
+            optimized_clustering_parameters = optimized_clustering_parameters_from_dto(
+                request.optimized_clustering,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
     def solve() -> SolveResultDto:
+        result = solve_global_recipe_lp(package, solve_mode=request.solve_mode)
+        is_success = getattr(result, "is_success", result.status == "optimal")
+        if is_success and optimized_clustering_parameters is not None:
+            optimized_clustering = optimize_clustering(
+                package,
+                result.recipe_rates,
+                external_supplies=result.external_supplies,
+                unmet_demand=result.unmet_demand,
+                surplus=result.surplus,
+                parameters=optimized_clustering_parameters,
+            )
+            result = replace(result, optimized_clustering=optimized_clustering)
         return result_to_dto(
-            solve_global_recipe_lp(package, solve_mode=request.solve_mode),
+            result,
         )
 
     try:

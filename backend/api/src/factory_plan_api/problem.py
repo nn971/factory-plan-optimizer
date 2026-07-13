@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from game_data_extractor.data_contracts import (
     ExternalSupply,
@@ -13,12 +14,17 @@ from factory_plan_api.dtos import (
     ExternalInputDto,
     ItemDto,
     MilestoneDto,
+    OptimizedClusteringConfigDto,
+    OptimizedClusteringResultDto,
     ProblemDto,
     SolveResultDto,
 )
 
 if TYPE_CHECKING:
     from factory_plan_optimizer.optimizer.global_recipe_lp import GlobalRecipeLpResult
+    from factory_plan_optimizer.optimizer.optimized_clustering import (
+        OptimizedClusteringParameters,
+    )
 
 
 DEFAULT_PACKAGE_ID = "default-first-3-science-v1"
@@ -229,6 +235,9 @@ def result_to_dto(result: GlobalRecipeLpResult) -> SolveResultDto:
         surplus=dict(result.surplus),
         balance_residuals=dict(result.balance_residuals),
         cluster_diagnostics=cluster_diagnostics,
+        optimized_clustering=_optimized_clustering_to_dto(
+            getattr(result, "optimized_clustering", None),
+        ),
         message=result.message,
         details=result.details,
     )
@@ -240,3 +249,30 @@ def _cluster_diagnostics_to_dto(
     if not diagnostics:
         return None
     return ClusterDiagnosticsDto.model_validate(diagnostics)
+
+
+def optimized_clustering_parameters_from_dto(
+    config: OptimizedClusteringConfigDto,
+) -> OptimizedClusteringParameters:
+    from factory_plan_optimizer.optimizer.optimized_clustering import (  # noqa: PLC0415
+        OptimizedClusteringParameters,
+        resolve_parameters,
+    )
+
+    dumped = config.model_dump()
+    dumped["splittable_recipe_ids"] = tuple(dumped["splittable_recipe_ids"])
+    parameters = OptimizedClusteringParameters(**dumped)
+    resolve_parameters(parameters)
+    return parameters
+
+
+def _optimized_clustering_to_dto(result: object) -> OptimizedClusteringResultDto | None:
+    if not result:
+        return None
+    if not isinstance(result, Mapping):
+        return None
+    sanitized: dict[str, Any] = dict(result)
+    if sanitized.get("status") == "solver_unavailable":
+        sanitized["message"] = "optimized clustering solver is unavailable"
+        sanitized["details"] = ""
+    return OptimizedClusteringResultDto.model_validate(sanitized)

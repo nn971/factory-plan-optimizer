@@ -393,6 +393,253 @@ def test_solve_job_eventually_succeeds_for_curated_science_request(
             "flow_cost",
             "port_cost",
         } <= set(boundary_item)
+    assert body["result"]["optimized_clustering"] is None
+
+
+def test_solve_enabled_optimized_clustering_response_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
+    client = TestClient(app)
+    problem = client.get("/api/problem/default").json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "demands": {"automation-science-pack": SCIENCE_TEST_RATE},
+            "external_inputs": problem["external_inputs"],
+            "optimized_clustering": {
+                "enabled": True,
+                "preset": "even_size",
+                "reporting_epsilon": 1e-6,
+                "time_limit_seconds": 10,
+                "max_cluster_size_constraint": "hard",
+                "allow_recipe_splitting": False,
+                "splittable_recipe_ids": ["automation-science-pack"],
+            },
+        },
+    )
+
+    assert queued.status_code == HTTP_OK
+    body = _wait_for_job(client, queued.json()["job_id"])
+    result = body["result"]
+    assert result["solver_status"] == "optimal"
+    assert result["cluster_diagnostics"]["mode"] == "diagnostic_only"
+    optimized = result["optimized_clustering"]
+    assert optimized is not None
+    assert optimized["status"] in {"optimal", "no_active_recipes", "solver_unavailable"}
+    assert optimized["mode"] == "continuous_split"
+    assert optimized["effective_parameters"]["preset"] == "even_size"
+    assert optimized["effective_parameters"]["allow_recipe_splitting"] is False
+    assert optimized["effective_parameters"]["max_cluster_size_constraint"] == "hard"
+    assert optimized["effective_parameters"]["splittable_recipe_ids"] == [
+        "automation-science-pack",
+    ]
+    assert "cluster_size_penalty" in optimized["objective_components"]
+    assert "cluster_cost" not in optimized["objective_components"]
+    optimized_fields = {"clusters", "allocations", "flows", "external_flows"}
+    assert optimized_fields | {"reconciliation"} <= set(optimized)
+    for row in optimized["external_flows"]:
+        assert row["boundary_label"] == "aggregate_external_balance"
+
+
+def test_solve_rejects_invalid_optimized_clustering_config() -> None:
+    client = TestClient(app)
+    invalid_configs = [
+        {"enabled": True, "reporting_epsilon": 1e-12},
+        {"enabled": True, "time_limit_seconds": 601},
+        {"enabled": True, "flow_cost_per_quantity": -1},
+        {"enabled": True, "min_cluster_size": 5, "max_cluster_size": 4},
+        {"enabled": "true"},
+        {"enabled": True, "allow_recipe_splitting": "true"},
+        {"enabled": True, "max_cluster_size_constraint": "bad"},
+        {"enabled": True, "splittable_recipe_ids": ["a", "a"]},
+    ]
+
+    for config in invalid_configs:
+        response = client.post(
+            "/api/solve",
+            json={
+                "demands": {"automation-science-pack": 1.0},
+                "external_inputs": [],
+                "optimized_clustering": config,
+            },
+        )
+        assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
+
+
+def test_solve_rejects_one_sided_optimized_clustering_bounds() -> None:
+    client = TestClient(app)
+
+    for config in [
+        {"enabled": True, "max_cluster_size": 4},
+        {"enabled": True, "min_cluster_size": 20},
+    ]:
+        response = client.post(
+            "/api/solve",
+            json={
+                "demands": {"automation-science-pack": 1.0},
+                "external_inputs": [],
+                "optimized_clustering": config,
+            },
+        )
+
+        assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
+        assert "min_cluster_size" in str(response.json()["detail"])
+
+
+def test_global_lp_failure_omits_optimized_clustering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    client = TestClient(app)
+    uploaded = client.post(
+        "/api/problem/package",
+        json=_unproducible_water_package(demand=UNPRODUCIBLE_WATER_DEMAND),
+    ).json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "package_id": uploaded["package_id"],
+            "demands": {"water": UNPRODUCIBLE_WATER_DEMAND},
+            "external_inputs": [],
+            "optimized_clustering": {"enabled": True},
+        },
+    )
+
+    body = _wait_for_job(client, queued.json()["job_id"])
+    assert body["result"]["solver_status"] == "infeasible"
+    assert body["result"]["optimized_clustering"] is None
+
+
+def test_nested_optimized_clustering_failure_preserves_global_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(
+        app_module,
+        "optimize_clustering",
+        lambda *_args, **_kwargs: {
+            "status": "model_too_large",
+            "mode": "continuous_split",
+            "effective_parameters": {
+                "enabled": True,
+                "mode": "continuous_split",
+                "preset": "balanced",
+                "preset_is_provisional": False,
+                "flow_cost_per_quantity": 1.0,
+                "port_cost_per_item_type": 100.0,
+                "cluster_size_penalty_weight": 10.0,
+                "min_cluster_size": 5.0,
+                "max_cluster_size": 15.0,
+                "reporting_epsilon": 1e-6,
+                "time_limit_seconds": 60.0,
+            },
+            "objective_value": None,
+            "objective_components": {
+                "flow_cost": 0.0,
+                "port_cost": 0.0,
+                "cluster_size_penalty": 0.0,
+                "duplication_cost": 0.0,
+            },
+            "cost_breakdown": {},
+            "clusters": [],
+            "allocations": [],
+            "flows": [],
+            "external_flows": [],
+            "reconciliation": {
+                "objective_total": 0.0,
+                "breakdown_total": 0.0,
+                "difference": 0.0,
+                "reconciled": True,
+            },
+            "message": "optimized clustering model exceeds guardrail",
+            "model_size": {"score": 1, "max_score": 0},
+        },
+    )
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
+    client = TestClient(app)
+    problem = client.get("/api/problem/default").json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "demands": {"automation-science-pack": 1.0},
+            "external_inputs": problem["external_inputs"],
+            "optimized_clustering": {"enabled": True},
+        },
+    )
+
+    body = _wait_for_job(client, queued.json()["job_id"])
+    assert body["result"]["solver_status"] == "optimal"
+    assert body["result"]["optimized_clustering"]["status"] == "model_too_large"
+
+
+def test_optimized_clustering_solver_details_are_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(
+        app_module,
+        "optimize_clustering",
+        lambda *_args, **_kwargs: {
+            "status": "solver_unavailable",
+            "mode": "continuous_split",
+            "effective_parameters": {
+                "enabled": True,
+                "mode": "continuous_split",
+                "preset": "balanced",
+                "preset_is_provisional": False,
+                "flow_cost_per_quantity": 1.0,
+                "port_cost_per_item_type": 100.0,
+                "cluster_size_penalty_weight": 10.0,
+                "min_cluster_size": 5.0,
+                "max_cluster_size": 15.0,
+                "reporting_epsilon": 1e-6,
+                "time_limit_seconds": 60.0,
+            },
+            "objective_value": 0.0,
+            "objective_components": {
+                "flow_cost": 0.0,
+                "port_cost": 0.0,
+                "cluster_size_penalty": 0.0,
+                "duplication_cost": 0.0,
+            },
+            "cost_breakdown": {},
+            "clusters": [],
+            "allocations": [],
+            "flows": [],
+            "external_flows": [],
+            "reconciliation": {
+                "objective_total": 0.0,
+                "breakdown_total": 0.0,
+                "difference": 0.0,
+                "reconciled": True,
+            },
+            "message": "HiGHS solver is not available",
+            "details": "/home/fungi/local/solver/bin/highs missing",
+        },
+    )
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
+    client = TestClient(app)
+    problem = client.get("/api/problem/default").json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "demands": {"automation-science-pack": 1.0},
+            "external_inputs": problem["external_inputs"],
+            "optimized_clustering": {"enabled": True},
+        },
+    )
+
+    body = _wait_for_job(client, queued.json()["job_id"])
+    optimized = body["result"]["optimized_clustering"]
+    assert optimized["status"] == "solver_unavailable"
+    assert optimized["message"] == "optimized clustering solver is unavailable"
+    assert optimized["details"] == ""
 
 
 def test_default_raw_input_candidates_have_sources() -> None:

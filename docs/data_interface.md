@@ -135,6 +135,36 @@ All optimizer results should report these named components, even when inactive:
 For the initial global recipe LP, logistics terms (`flow_cost`, `port_cost`,
 `cluster_cost`, and `duplication_cost`) are inactive and reported as `0.0`.
 
+Optimized clustering is reported separately from the global LP result when an API
+solve request opts into `optimized_clustering`. Its nested
+`objective_components` use these names:
+
+- `flow_cost`
+- `port_cost`
+- `cluster_size_penalty`
+- `duplication_cost`
+
+Optimized clustering intentionally uses `cluster_size_penalty` and does not emit
+`cluster_cost`. Its response field is nullable: omitted/not requested optimized
+clustering is represented as `optimized_clustering: null`; a successful global LP
+can still contain a nested optimized-clustering status such as
+`timeout_no_incumbent`, `solver_unavailable`, or `model_too_large` without making
+the global LP solve fail.
+
+Optimized clustering external rows currently use the conservative
+`aggregate_external_balance` boundary label. These rows explain aggregate model
+balance against the outside of the cluster system; they are not exact raw-supply,
+final-demand, surplus, or unmet-demand routes.
+
+Optimized clustering keeps solved recipe totals fixed. Recipes are assigned whole
+to one cluster by default; request parameters may allow all recipes to split with
+`allow_recipe_splitting` or allow only specific recipes via
+`splittable_recipe_ids`. Backend reporting trims sub-epsilon clusters and
+recomputes reported rows/components from retained clusters while preserving the
+raw solver objective for reconciliation. `max_cluster_size_constraint` defaults
+to `soft`, which reports and penalizes over-max clusters; setting it to `hard`
+enforces the maximum cluster size as a cap while keeping minimum size soft.
+
 ## Validation rules
 
 The loader rejects packages when:

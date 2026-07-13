@@ -8,6 +8,7 @@ import {
 import { buildActiveFlowGraph } from '../../domain/solveResultFlow';
 import { ClusterDiagnosticsPanel } from './ClusterDiagnosticsPanel';
 import { FlowGraph } from './FlowGraph';
+import { OptimizedClusteringPanel } from './OptimizedClusteringPanel';
 import { RawResultTables } from './RawResultTables';
 
 export function SolveResultPanel({
@@ -71,6 +72,7 @@ export function SolveResultPanel({
               <button type="button" onClick={onLoadExplorer}>{recipeDataActionLabel}</button>
             )}
           </section>
+          <OptimizedClusteringPanel result={job.result.optimized_clustering} />
           <ClusterDiagnosticsPanel result={job.result} />
           {graph && <FlowGraph key={job.job_id} graph={graph} result={job.result} />}
           <RawResultTables result={job.result} />

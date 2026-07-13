@@ -1,4 +1,4 @@
-import type { ExternalInputDto, ProblemDto, SolveModeDto, SolveRequestDto } from '../api/dtos';
+import type { ExternalInputDto, MaxClusterSizeConstraintDto, OptimizedClusteringPresetDto, ProblemDto, SolveModeDto, SolveRequestDto } from '../api/dtos';
 
 export type DisplayRateUnits = 'items_per_second' | 'items_per_minute';
 
@@ -17,13 +17,45 @@ export type EditableProblem = {
   displayRateUnits: DisplayRateUnits;
   demands: Record<string, string>;
   externalInputs: EditableExternalInput[];
+  optimizedClustering: EditableOptimizedClustering;
+};
+
+export type EditableOptimizedClustering = {
+  enabled: boolean;
+  allowRecipeSplitting: boolean;
+  splittableRecipeIds: string;
+  preset: OptimizedClusteringPresetDto;
+  reportingEpsilon: string;
+  timeLimitSeconds: string;
+  flowCostPerQuantity: string;
+  portCostPerItemType: string;
+  clusterSizePenaltyWeight: string;
+  minClusterSize: string;
+  maxClusterSize: string;
+  maxClusterSizeConstraint: MaxClusterSizeConstraintDto;
+};
+
+export const DEFAULT_OPTIMIZED_CLUSTERING: EditableOptimizedClustering = {
+  enabled: false,
+  allowRecipeSplitting: false,
+  splittableRecipeIds: '',
+  preset: 'balanced',
+  reportingEpsilon: '0.000001',
+  timeLimitSeconds: '60',
+  flowCostPerQuantity: '1',
+  portCostPerItemType: '100',
+  clusterSizePenaltyWeight: '10',
+  minClusterSize: '5',
+  maxClusterSize: '15',
+  maxClusterSizeConstraint: 'soft',
 };
 
 export function createEditableProblem(problem: ProblemDto): EditableProblem {
   const targetDemandIds = problem.target_demands ?? [];
-  const externalInputs = problem.raw_input_candidates.length > 0
-    ? problem.raw_input_candidates
-    : problem.external_inputs;
+  const rawInputCandidates = problem.raw_input_candidates ?? [];
+  const externalInputs = rawInputCandidates.length > 0
+    ? rawInputCandidates
+    : problem.external_inputs ?? [];
   return {
     solveMode: problem.default_solve_mode,
     displayRateUnits: normalizeDisplayRateUnits(problem.rate_units),
@@ -39,6 +71,7 @@ export function createEditableProblem(problem: ProblemDto): EditableProblem {
       source: input.source,
       defaultApproved: input.default_approved ?? false,
     })),
+    optimizedClustering: { ...DEFAULT_OPTIMIZED_CLUSTERING },
   };
 }
 
@@ -48,6 +81,23 @@ export function toSolveRequest(
   selectedMilestone?: string | null,
 ): SolveRequestDto {
   const trimmedMilestone = selectedMilestone?.trim();
+  const optimizedClustering = editable.optimizedClustering.enabled
+    ? {
+        enabled: true,
+        mode: 'continuous_split' as const,
+        preset: editable.optimizedClustering.preset,
+        flow_cost_per_quantity: parseNonnegativeNumber(editable.optimizedClustering.flowCostPerQuantity),
+        port_cost_per_item_type: parseNonnegativeNumber(editable.optimizedClustering.portCostPerItemType),
+        cluster_size_penalty_weight: parseNonnegativeNumber(editable.optimizedClustering.clusterSizePenaltyWeight),
+        min_cluster_size: parseNonnegativeNumber(editable.optimizedClustering.minClusterSize),
+        max_cluster_size: parsePositiveNumber(editable.optimizedClustering.maxClusterSize),
+        max_cluster_size_constraint: editable.optimizedClustering.maxClusterSizeConstraint,
+        reporting_epsilon: parsePositiveNumber(editable.optimizedClustering.reportingEpsilon),
+        time_limit_seconds: parsePositiveNumber(editable.optimizedClustering.timeLimitSeconds),
+        allow_recipe_splitting: editable.optimizedClustering.allowRecipeSplitting,
+        splittable_recipe_ids: parseRecipeIdList(editable.optimizedClustering.splittableRecipeIds),
+      }
+    : undefined;
   return {
     package_id: packageId ?? undefined,
     ...(trimmedMilestone ? { selected_milestone: trimmedMilestone } : {}),
@@ -69,6 +119,7 @@ export function toSolveRequest(
       source: input.source,
       default_approved: input.defaultApproved,
     })),
+    ...(optimizedClustering ? { optimized_clustering: optimizedClustering } : {}),
   };
 }
 
@@ -130,4 +181,13 @@ function parseOptionalNonnegativeNumber(value: string): number | null {
 function parseNonnegativeNumber(value: string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function parsePositiveNumber(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function parseRecipeIdList(value: string): string[] {
+  return [...new Set(value.split(/[\n,]/).map((entry) => entry.trim()).filter(Boolean))];
 }

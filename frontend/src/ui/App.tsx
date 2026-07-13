@@ -11,6 +11,7 @@ import { ExplorerPanel } from './ExplorerPanel';
 import { SolveResultPanel } from './solve-result/SolveResultPanel';
 import {
   createEditableProblem,
+  DEFAULT_OPTIMIZED_CLUSTERING,
   displayRateToItemsPerSecond,
   findApprovedInputsMissingCapacity,
   hasPositiveDemand,
@@ -30,10 +31,11 @@ type Notice = {
 type AppTab = 'solver' | 'explorer';
 
 type SavedEditableProblem = Pick<EditableProblem, 'solveMode' | 'displayRateUnits' | 'demands' | 'externalInputs'> & {
-  version: 2;
+  optimizedClustering?: EditableProblem['optimizedClustering'];
+  version: 2 | 3;
 };
 
-type SavedEditableProblemVersion = 1 | 2;
+type SavedEditableProblemVersion = 1 | 2 | 3;
 
 export function App() {
   const [problem, setProblem] = useState<ProblemDto | null>(null);
@@ -72,7 +74,7 @@ export function App() {
 
   useEffect(() => {
     if (!editable || !storageKey) return;
-    const payload: SavedEditableProblem = { version: 2, ...editable };
+    const payload: SavedEditableProblem = { version: 3, ...editable };
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(payload));
     } catch {
@@ -259,6 +261,17 @@ export function App() {
     setEditable((current) => (current ? { ...current, solveMode } : current));
   }
 
+  function updateOptimizedClustering(patch: Partial<EditableProblem['optimizedClustering']>) {
+    setEditable((current) =>
+      current
+        ? {
+            ...current,
+            optimizedClustering: { ...current.optimizedClustering, ...patch },
+          }
+        : current,
+    );
+  }
+
   function updateExternalInput(
     itemId: string,
     patch: Partial<{ enabled: boolean; cost: string; capacity: string }>,
@@ -398,8 +411,10 @@ export function App() {
                   ))}
                   {!visibleDemands.length && <p className="muted">No matching demands.</p>}
                 </>
-              ) : (
+              ) : loading ? (
                 <p>Loading problem…</p>
+              ) : (
+                <p className="muted">Problem data could not be loaded. Check the notice above or reload the default package.</p>
               )}
             </Panel>
 
@@ -473,8 +488,10 @@ export function App() {
                   ))}
                   {!visibleExternalInputs.length && <p className="muted">No matching inputs.</p>}
                 </>
-              ) : (
+              ) : loading ? (
                 <p>Loading inputs…</p>
+              ) : (
+                <p className="muted">Input candidates are unavailable until problem data loads.</p>
               )}
             </Panel>
           </section>
@@ -506,6 +523,15 @@ export function App() {
                 Hard mode must meet the requested rates. Soft diagnostics can show unmet demand when a plan cannot fit.
               </p>
             </fieldset>
+          </section>
+
+          <OptimizedClusteringControls
+            settings={editable?.optimizedClustering ?? null}
+            disabled={!editable || loading}
+            onChange={updateOptimizedClustering}
+          />
+
+          <section className="actions solve-actions" aria-label="Solve actions">
             <button
               type="button"
               className="primary"
@@ -691,6 +717,7 @@ function createEditableProblemFromStorage(problem: ProblemDto): EditableProblem 
             : input.capacity,
       };
     }),
+    optimizedClustering: sanitizeSavedOptimizedClustering(saved.optimizedClustering),
   };
 }
 
@@ -723,11 +750,14 @@ function readSavedEditableProblem(key: string): SavedEditableProblem | null {
       }];
     });
     return {
-      version: 2,
+      version: 3,
       solveMode: parsed.solveMode,
       displayRateUnits: parsed.displayRateUnits,
       demands,
       externalInputs,
+      optimizedClustering: sanitizeSavedOptimizedClustering(
+        isRecord(parsed.optimizedClustering) ? parsed.optimizedClustering : undefined,
+      ),
     };
   } catch {
     return null;
@@ -735,7 +765,27 @@ function readSavedEditableProblem(key: string): SavedEditableProblem | null {
 }
 
 function isSupportedSavedEditableProblemVersion(value: unknown): value is SavedEditableProblemVersion {
-  return value === 1 || value === 2;
+  return value === 1 || value === 2 || value === 3;
+}
+
+function sanitizeSavedOptimizedClustering(value: unknown): EditableProblem['optimizedClustering'] {
+  if (!isRecord(value)) return { ...DEFAULT_OPTIMIZED_CLUSTERING };
+  const preset = value.preset === 'fewer_ports' || value.preset === 'even_size' ? value.preset : 'balanced';
+  const maxClusterSizeConstraint = value.maxClusterSizeConstraint === 'hard' ? 'hard' : 'soft';
+  return {
+    enabled: typeof value.enabled === 'boolean' ? value.enabled : false,
+    allowRecipeSplitting: typeof value.allowRecipeSplitting === 'boolean' ? value.allowRecipeSplitting : false,
+    splittableRecipeIds: typeof value.splittableRecipeIds === 'string' ? value.splittableRecipeIds : DEFAULT_OPTIMIZED_CLUSTERING.splittableRecipeIds,
+    preset,
+    reportingEpsilon: typeof value.reportingEpsilon === 'string' ? value.reportingEpsilon : DEFAULT_OPTIMIZED_CLUSTERING.reportingEpsilon,
+    timeLimitSeconds: typeof value.timeLimitSeconds === 'string' ? value.timeLimitSeconds : DEFAULT_OPTIMIZED_CLUSTERING.timeLimitSeconds,
+    flowCostPerQuantity: typeof value.flowCostPerQuantity === 'string' ? value.flowCostPerQuantity : DEFAULT_OPTIMIZED_CLUSTERING.flowCostPerQuantity,
+    portCostPerItemType: typeof value.portCostPerItemType === 'string' ? value.portCostPerItemType : DEFAULT_OPTIMIZED_CLUSTERING.portCostPerItemType,
+    clusterSizePenaltyWeight: typeof value.clusterSizePenaltyWeight === 'string' ? value.clusterSizePenaltyWeight : DEFAULT_OPTIMIZED_CLUSTERING.clusterSizePenaltyWeight,
+    minClusterSize: typeof value.minClusterSize === 'string' ? value.minClusterSize : DEFAULT_OPTIMIZED_CLUSTERING.minClusterSize,
+    maxClusterSize: typeof value.maxClusterSize === 'string' ? value.maxClusterSize : DEFAULT_OPTIMIZED_CLUSTERING.maxClusterSize,
+    maxClusterSizeConstraint,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -808,7 +858,136 @@ function validateEditableProblem(editable: EditableProblem): Notice | null {
       message: `Approved raw inputs need a finite capacity before solving. Fix: ${missingCapacityIds.join(', ')}.`,
     };
   }
+  if (editable.optimizedClustering.enabled) {
+    const invalidOptimizedFields = invalidOptimizedClusteringFields(editable.optimizedClustering);
+    if (invalidOptimizedFields.length > 0) {
+      return {
+        title: 'Check optimized clustering settings',
+        message: `Reporting epsilon must be 1e-9 to 1e-2, time limit 1 to 600 seconds, max cluster size must be positive, and min size cannot exceed max size. Fix: ${invalidOptimizedFields.join(', ')}.`,
+      };
+    }
+  }
   return null;
+}
+
+export function OptimizedClusteringControls({
+  settings,
+  disabled,
+  onChange,
+}: {
+  settings: EditableProblem['optimizedClustering'] | null;
+  disabled: boolean;
+  onChange: (patch: Partial<EditableProblem['optimizedClustering']>) => void;
+}) {
+  return (
+    <section className="panel optimized-clustering-controls" aria-labelledby="optimized-clustering-controls-title">
+      <div className="optimized-control-heading">
+        <div>
+          <p className="eyebrow">Optional second pass</p>
+          <h2 id="optimized-clustering-controls-title">Optimized clustering</h2>
+          <p className="muted">
+            Keep this off for the normal solve. Turn it on to ask the backend for a separate cluster allocation after the main plan is solved.
+          </p>
+        </div>
+        <label className="check inline optimized-enable">
+          <input
+            type="checkbox"
+            checked={settings?.enabled ?? false}
+            disabled={disabled || !settings}
+            onChange={(event) => onChange({ enabled: event.target.checked })}
+          />{' '}
+          Enable optimized clustering
+        </label>
+      </div>
+      {settings && (
+        <>
+          <fieldset className="preset-grid" disabled={disabled || !settings.enabled}>
+            <legend>Preset</legend>
+            <label className="check preset-card">
+              <input type="radio" name="optimized-preset" checked={settings.preset === 'balanced'} onChange={() => onChange({ preset: 'balanced' })} />
+              <span><strong>Balanced</strong><small>Default weights for flow, ports, and size.</small></span>
+            </label>
+            <label className="check preset-card">
+              <input type="radio" name="optimized-preset" checked={settings.preset === 'fewer_ports'} onChange={() => onChange({ preset: 'fewer_ports' })} />
+              <span><strong>Fewer ports</strong><small>Higher pressure to reduce cluster boundaries.</small></span>
+            </label>
+            <label className="check preset-card">
+              <input type="radio" name="optimized-preset" checked={settings.preset === 'even_size'} onChange={() => onChange({ preset: 'even_size' })} />
+              <span><strong>Even size</strong><small>Higher pressure against very small or large clusters.</small></span>
+            </label>
+          </fieldset>
+          <details className="optimized-advanced">
+            <summary>Advanced optimized clustering settings</summary>
+            <div className="optimized-splitting-controls">
+              <label className="check inline">
+                <input type="checkbox" checked={settings.allowRecipeSplitting} disabled={disabled || !settings.enabled} onChange={(event) => onChange({ allowRecipeSplitting: event.target.checked })} />
+                Allow all recipes to split across clusters
+              </label>
+              <label>
+                Splittable recipe IDs
+                <textarea value={settings.splittableRecipeIds} disabled={disabled || !settings.enabled || settings.allowRecipeSplitting} placeholder="one recipe id per line, or comma separated" onChange={(event) => onChange({ splittableRecipeIds: event.target.value })} />
+              </label>
+              <p className="muted">Recipes stay whole by default. Use the allowlist only for specific high-throughput recipes that may be split.</p>
+            </div>
+            <div className="advanced-grid">
+              <NumericControl label="Reporting epsilon" value={settings.reportingEpsilon} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ reportingEpsilon: value })} />
+              <NumericControl label="Time limit seconds" value={settings.timeLimitSeconds} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ timeLimitSeconds: value })} />
+              <NumericControl label="Flow cost weight" value={settings.flowCostPerQuantity} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ flowCostPerQuantity: value })} />
+              <NumericControl label="Port cost weight" value={settings.portCostPerItemType} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ portCostPerItemType: value })} />
+              <NumericControl label="Size penalty weight" value={settings.clusterSizePenaltyWeight} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ clusterSizePenaltyWeight: value })} />
+              <NumericControl label="Min cluster size" value={settings.minClusterSize} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ minClusterSize: value })} />
+              <NumericControl label="Max cluster size" value={settings.maxClusterSize} disabled={disabled || !settings.enabled} onChange={(value) => onChange({ maxClusterSize: value })} />
+              <label>
+                Max size behavior
+                <select value={settings.maxClusterSizeConstraint} disabled={disabled || !settings.enabled} onChange={(event) => onChange({ maxClusterSizeConstraint: event.target.value === 'hard' ? 'hard' : 'soft' })}>
+                  <option value="soft">Soft penalty</option>
+                  <option value="hard">Hard cap</option>
+                </select>
+              </label>
+            </div>
+          </details>
+        </>
+      )}
+    </section>
+  );
+}
+
+function NumericControl({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (value: string) => void }) {
+  return (
+    <label>
+      {label}
+      <input type="number" min="0" step="any" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function invalidOptimizedClusteringFields(settings: EditableProblem['optimizedClustering']): string[] {
+  const checks: Array<[string, string, (value: string) => boolean]> = [
+    ['reporting epsilon', settings.reportingEpsilon, (value) => isNumberInRange(value, 1e-9, 1e-2)],
+    ['time limit', settings.timeLimitSeconds, (value) => isNumberInRange(value, 1, 600)],
+    ['flow cost weight', settings.flowCostPerQuantity, isValidRequiredNonnegativeNumber],
+    ['port cost weight', settings.portCostPerItemType, isValidRequiredNonnegativeNumber],
+    ['size penalty weight', settings.clusterSizePenaltyWeight, isValidRequiredNonnegativeNumber],
+    ['min cluster size', settings.minClusterSize, isValidRequiredNonnegativeNumber],
+    ['max cluster size', settings.maxClusterSize, isValidRequiredPositiveNumber],
+  ];
+  const invalid = checks.filter(([, value, isValid]) => !isValid(value)).map(([label]) => label);
+  const min = Number(settings.minClusterSize);
+  const max = Number(settings.maxClusterSize);
+  if (Number.isFinite(min) && Number.isFinite(max) && min > max) invalid.push('min/max cluster size');
+  return invalid;
+}
+
+function isNumberInRange(value: string, min: number, max: number): boolean {
+  if (value.trim() === '') return false;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max;
+}
+
+function isValidRequiredPositiveNumber(value: string): boolean {
+  if (value.trim() === '') return false;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0;
 }
 
 function invalidNumberEntries(values: Record<string, string>): string[] {

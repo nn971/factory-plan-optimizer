@@ -26,15 +26,15 @@ export function ClusterDiagnosticsPanel({ result }: { result: SolveResultDto }) 
           <p className="eyebrow">Solver cluster diagnostics</p>
           <h3 id="cluster-diagnostics-title">Boundary item review</h3>
           <p className="muted">
-            These clusters come from the solver after the plan is solved. Costs here are diagnostic only; the optimized objective above is unchanged.
+            Deterministic diagnostics fallback for the solved plan. Costs here are diagnostic only; they are separate from sparse clustering.
           </p>
           <p className="muted">
             Boundary costs are approximate diagnostics inferred from each cluster&apos;s net item flows. They are not exact routing or transport decisions.
           </p>
         </div>
         <div className="cluster-total-cards">
-          <MetricCard label="Optimized objective" value={summary.diagnostics.base_objective_value} note="actual solve" />
-          <MetricCard label="Diagnostic costs" value={summary.diagnostics.diagnostic_total} note="not optimized" accent />
+          <MetricCard label="Solved objective" value={summary.diagnostics.base_objective_value} note="actual solve" />
+          <MetricCard label="Diagnostic costs" value={summary.diagnostics.diagnostic_total} note="diagnostic only" accent />
           <MetricCard label="Combined view" value={summary.diagnostics.combined_diagnostic_objective_value} note="objective + diagnostics" />
         </div>
       </div>

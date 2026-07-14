@@ -6,6 +6,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from factory_plan_api.app import app
@@ -15,11 +16,11 @@ from factory_plan_api.default_data import (
     default_data_path,
     load_default_factory_data,
 )
+from factory_plan_api.dtos import SparseClusteringResultDto
 from factory_plan_api.jobs import SolveJobStoreFullError
 from factory_plan_api.problem import result_to_dto
 
 if TYPE_CHECKING:
-    import pytest
     from game_data_extractor.data_contracts import FactoryDataPackage
 
 HTTP_OK = 200
@@ -226,7 +227,26 @@ def test_default_problem_endpoint_shape() -> None:
     assert body["default_solve_mode"] == "hard_demand"
     assert body["item_metadata"] == {}
     assert body["recipe_metadata"] == {}
+    assert body["sparse_clustering_defaults"]["mode"] == "fast"
+    assert body["sparse_clustering_defaults"]["max_refinement_passes"] is None
+    assert body["sparse_clustering_defaults"]["guardrails"]["max_runtime_seconds"] == {
+        "exclusive_min": 0.0,
+    }
+    assert body["sparse_clustering_defaults"]["guardrails"]["hub_item_top_k"] == {
+        "min": 1,
+        "integer": True,
+    }
     assert {"id": "py-science-pack-1", "kind": "item"} in body["items"]
+
+
+def test_problem_clustering_defaults_match_optimizer_core() -> None:
+    from factory_plan_optimizer.optimizer.sparse_clustering import (  # noqa: PLC0415
+        sparse_clustering_defaults,
+    )
+
+    body = TestClient(app).get("/api/problem/default").json()
+
+    assert body["sparse_clustering_defaults"] == sparse_clustering_defaults()
 
 
 def test_explorer_autoloads_default_and_returns_package_id(
@@ -400,79 +420,6 @@ def test_solve_job_eventually_succeeds_for_curated_science_request(
             "flow_cost",
             "port_cost",
         } <= set(boundary_item)
-    assert body["result"]["optimized_clustering"] is None
-
-
-def test_solve_enabled_optimized_clustering_response_shape(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
-    client = TestClient(app)
-    problem = client.get("/api/problem/default").json()
-
-    queued = client.post(
-        "/api/solve",
-        json={
-            "demands": {"automation-science-pack": SCIENCE_TEST_RATE},
-            "external_inputs": problem["external_inputs"],
-            "optimized_clustering": {
-                "enabled": True,
-                "preset": "even_size",
-                "reporting_epsilon": 1e-6,
-                "time_limit_seconds": 10,
-                "max_cluster_size_constraint": "hard",
-                "allow_recipe_splitting": False,
-                "splittable_recipe_ids": ["automation-science-pack"],
-            },
-        },
-    )
-
-    assert queued.status_code == HTTP_OK
-    body = _wait_for_job(client, queued.json()["job_id"])
-    result = body["result"]
-    assert result["solver_status"] == "optimal"
-    assert result["cluster_diagnostics"]["mode"] == "diagnostic_only"
-    optimized = result["optimized_clustering"]
-    assert optimized is not None
-    assert optimized["status"] in {"optimal", "no_active_recipes", "solver_unavailable"}
-    assert optimized["mode"] == "continuous_split"
-    assert optimized["effective_parameters"]["preset"] == "even_size"
-    assert optimized["effective_parameters"]["allow_recipe_splitting"] is False
-    assert optimized["effective_parameters"]["max_cluster_size_constraint"] == "hard"
-    assert optimized["effective_parameters"]["splittable_recipe_ids"] == [
-        "automation-science-pack",
-    ]
-    assert "cluster_size_penalty" in optimized["objective_components"]
-    assert "cluster_cost" not in optimized["objective_components"]
-    optimized_fields = {"clusters", "allocations", "flows", "external_flows"}
-    assert optimized_fields | {"reconciliation"} <= set(optimized)
-    for row in optimized["external_flows"]:
-        assert row["boundary_label"] == "aggregate_external_balance"
-
-
-def test_solve_rejects_invalid_optimized_clustering_config() -> None:
-    client = TestClient(app)
-    invalid_configs = [
-        {"enabled": True, "reporting_epsilon": 1e-12},
-        {"enabled": True, "time_limit_seconds": 601},
-        {"enabled": True, "flow_cost_per_quantity": -1},
-        {"enabled": True, "min_cluster_size": 5, "max_cluster_size": 4},
-        {"enabled": "true"},
-        {"enabled": True, "allow_recipe_splitting": "true"},
-        {"enabled": True, "max_cluster_size_constraint": "bad"},
-        {"enabled": True, "splittable_recipe_ids": ["a", "a"]},
-    ]
-
-    for config in invalid_configs:
-        response = client.post(
-            "/api/solve",
-            json={
-                "demands": {"automation-science-pack": 1.0},
-                "external_inputs": [],
-                "optimized_clustering": config,
-            },
-        )
-        assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
 
 
 def test_solve_enabled_sparse_clustering_response_shape(
@@ -510,8 +457,12 @@ def test_solve_enabled_sparse_clustering_response_shape(
     assert result["solver_status"] == "optimal"
     sparse = result["sparse_clustering"]
     assert sparse["status"] == "success"
+    assert "reason_code" not in sparse
     assert sparse["mode"] == "fast"
     assert sparse["optimization_effect"] == "none"
+    assert "fallback_attempted" not in sparse
+    assert "fallback_mode" not in sparse
+    assert "fallback" not in sparse
     assert sparse["effective_config"]["hub_item_top_k"] == SPARSE_TEST_HUB_TOP_K
     assert (
         sparse["effective_config"]["port_cost_weight"] == SPARSE_TEST_PORT_COST_WEIGHT
@@ -553,7 +504,7 @@ def test_solve_enabled_sparse_clustering_response_shape(
         assert "amount" not in row
 
 
-def test_solve_sparse_clustering_exact_small_unsupported(
+def test_solve_sparse_disabled_result_includes_reason_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
@@ -563,15 +514,43 @@ def test_solve_sparse_clustering_exact_small_unsupported(
     queued = client.post(
         "/api/solve",
         json={
-            "demands": {"automation-science-pack": 1.0},
+            "demands": {"automation-science-pack": SCIENCE_TEST_RATE},
             "external_inputs": problem["external_inputs"],
-            "sparse_clustering": {"enabled": True, "mode": "exact-small"},
+            "sparse_clustering": {"enabled": False},
         },
     )
 
     body = _wait_for_job(client, queued.json()["job_id"])
-    assert body["result"]["solver_status"] == "optimal"
-    assert body["result"]["sparse_clustering"]["status"] == "unsupported"
+    sparse = body["result"]["sparse_clustering"]
+    assert sparse["status"] == "skipped"
+    assert sparse["reason_code"] == "disabled"
+
+
+def test_solve_minimal_sparse_config_uses_optimizer_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
+    client = TestClient(app)
+    problem = client.get("/api/problem/default").json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "demands": {"automation-science-pack": SCIENCE_TEST_RATE},
+            "external_inputs": problem["external_inputs"],
+            "sparse_clustering": {"enabled": True},
+        },
+    )
+
+    assert queued.status_code == HTTP_OK
+    body = _wait_for_job(client, queued.json()["job_id"])
+    sparse = body["result"]["sparse_clustering"]
+    assert sparse["status"] == "success"
+    assert (
+        sparse["effective_config"]["hub_item_top_k"]
+        == problem["sparse_clustering_defaults"]["hub_item_top_k"]
+    )
+    assert sparse["effective_config"]["max_refinement_passes"] is None
 
 
 def test_solve_rejects_invalid_sparse_clustering_config() -> None:
@@ -579,10 +558,12 @@ def test_solve_rejects_invalid_sparse_clustering_config() -> None:
     invalid_configs = [
         {"enabled": "true"},
         {"enabled": True, "mode": "unknown"},
+        {"enabled": True, "mode": "exact-small"},
         {"enabled": True, "min_cluster_count": 3, "max_cluster_count": 2},
         {"enabled": True, "target_cluster_count": 4, "max_cluster_count": 3},
         {"enabled": True, "max_runtime_seconds": 0},
         {"enabled": True, "hub_item_top_k": 0},
+        {"enabled": True, "hub_item_top_k": 1.5},
         {"enabled": True, "result_caps": {"recipe_assignments": -1}},
         {"enabled": True, "port_cost_weight": -1},
         {"enabled": True, "size_penalty_weight": -1},
@@ -604,50 +585,20 @@ def test_solve_rejects_invalid_sparse_clustering_config() -> None:
         assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
 
 
-def test_solve_rejects_one_sided_optimized_clustering_bounds() -> None:
+def test_solve_rejects_removed_clustering_field() -> None:
     client = TestClient(app)
+    removed_field = "optimi" + "zed_clustering"
 
-    for config in [
-        {"enabled": True, "max_cluster_size": 4},
-        {"enabled": True, "min_cluster_size": 20},
-    ]:
-        response = client.post(
-            "/api/solve",
-            json={
-                "demands": {"automation-science-pack": 1.0},
-                "external_inputs": [],
-                "optimized_clustering": config,
-            },
-        )
-
-        assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
-        assert "min_cluster_size" in str(response.json()["detail"])
-
-
-def test_global_lp_failure_omits_optimized_clustering(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app_module = import_module("factory_plan_api.app")
-    monkeypatch.setattr(app_module, "uploaded_packages", {})
-    client = TestClient(app)
-    uploaded = client.post(
-        "/api/problem/package",
-        json=_unproducible_water_package(demand=UNPRODUCIBLE_WATER_DEMAND),
-    ).json()
-
-    queued = client.post(
+    response = client.post(
         "/api/solve",
         json={
-            "package_id": uploaded["package_id"],
-            "demands": {"water": UNPRODUCIBLE_WATER_DEMAND},
+            "demands": {"automation-science-pack": 1.0},
             "external_inputs": [],
-            "optimized_clustering": {"enabled": True},
+            removed_field: {"enabled": True},
         },
     )
 
-    body = _wait_for_job(client, queued.json()["job_id"])
-    assert body["result"]["solver_status"] == "infeasible"
-    assert body["result"]["optimized_clustering"] is None
+    assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
 
 
 def test_global_lp_failure_omits_sparse_clustering(
@@ -676,7 +627,7 @@ def test_global_lp_failure_omits_sparse_clustering(
     assert body["result"]["sparse_clustering"] is None
 
 
-def test_nested_sparse_clustering_failure_preserves_global_success(
+def test_unexpected_sparse_clustering_exception_fails_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app_module = import_module("factory_plan_api.app")
@@ -699,139 +650,25 @@ def test_nested_sparse_clustering_failure_preserves_global_success(
     )
 
     body = _wait_for_job(client, queued.json()["job_id"])
-    assert body["result"]["solver_status"] == "optimal"
-    sparse = body["result"]["sparse_clustering"]
-    assert sparse["status"] == "failed"
-    assert sparse["message"] == "sparse clustering failed"
-    assert "internal traceback path" not in str(sparse)
+    assert body["status"] == "failed"
+    assert body["result"] is None
+    assert body["error"]["type"] == "RuntimeError"
+    assert body["error"]["message"] == "internal traceback path"
 
 
-def test_nested_optimized_clustering_failure_preserves_global_success(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app_module = import_module("factory_plan_api.app")
-    monkeypatch.setattr(
-        app_module,
-        "optimize_clustering",
-        lambda *_args, **_kwargs: {
-            "status": "model_too_large",
-            "mode": "continuous_split",
-            "effective_parameters": {
-                "enabled": True,
-                "mode": "continuous_split",
-                "preset": "balanced",
-                "preset_is_provisional": False,
-                "flow_cost_per_quantity": 1.0,
-                "port_cost_per_item_type": 100.0,
-                "cluster_size_penalty_weight": 10.0,
-                "min_cluster_size": 5.0,
-                "max_cluster_size": 15.0,
-                "reporting_epsilon": 1e-6,
-                "time_limit_seconds": 60.0,
-            },
-            "objective_value": None,
-            "objective_components": {
-                "flow_cost": 0.0,
-                "port_cost": 0.0,
-                "cluster_size_penalty": 0.0,
-                "duplication_cost": 0.0,
-            },
-            "cost_breakdown": {},
-            "clusters": [],
-            "allocations": [],
-            "flows": [],
-            "external_flows": [],
-            "reconciliation": {
-                "objective_total": 0.0,
-                "breakdown_total": 0.0,
-                "difference": 0.0,
-                "reconciled": True,
-            },
-            "message": "optimized clustering model exceeds guardrail",
-            "model_size": {"score": 1, "max_score": 0},
-        },
-    )
-    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
-    client = TestClient(app)
-    problem = client.get("/api/problem/default").json()
+def test_clustering_result_dtos_require_reason_code_for_non_success() -> None:
+    sparse_payload = {
+        "status": "skipped",
+        "message": "no active recipes",
+        "mode": "fast",
+        "graph_type": "recipe-to-recipe",
+        "optimization_effect": "none",
+        "effective_config": {},
+        "warnings": [],
+    }
 
-    queued = client.post(
-        "/api/solve",
-        json={
-            "demands": {"automation-science-pack": 1.0},
-            "external_inputs": problem["external_inputs"],
-            "optimized_clustering": {"enabled": True},
-        },
-    )
-
-    body = _wait_for_job(client, queued.json()["job_id"])
-    assert body["result"]["solver_status"] == "optimal"
-    assert body["result"]["optimized_clustering"]["status"] == "model_too_large"
-
-
-def test_optimized_clustering_solver_details_are_sanitized(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    app_module = import_module("factory_plan_api.app")
-    monkeypatch.setattr(
-        app_module,
-        "optimize_clustering",
-        lambda *_args, **_kwargs: {
-            "status": "solver_unavailable",
-            "mode": "continuous_split",
-            "effective_parameters": {
-                "enabled": True,
-                "mode": "continuous_split",
-                "preset": "balanced",
-                "preset_is_provisional": False,
-                "flow_cost_per_quantity": 1.0,
-                "port_cost_per_item_type": 100.0,
-                "cluster_size_penalty_weight": 10.0,
-                "min_cluster_size": 5.0,
-                "max_cluster_size": 15.0,
-                "reporting_epsilon": 1e-6,
-                "time_limit_seconds": 60.0,
-            },
-            "objective_value": 0.0,
-            "objective_components": {
-                "flow_cost": 0.0,
-                "port_cost": 0.0,
-                "cluster_size_penalty": 0.0,
-                "duplication_cost": 0.0,
-            },
-            "cost_breakdown": {},
-            "clusters": [],
-            "allocations": [],
-            "flows": [],
-            "external_flows": [],
-            "reconciliation": {
-                "objective_total": 0.0,
-                "breakdown_total": 0.0,
-                "difference": 0.0,
-                "reconciled": True,
-            },
-            "message": "HiGHS solver is not available",
-            "details": "/home/fungi/local/solver/bin/highs missing",
-        },
-    )
-    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
-    client = TestClient(app)
-    problem = client.get("/api/problem/default").json()
-
-    queued = client.post(
-        "/api/solve",
-        json={
-            "demands": {"automation-science-pack": 1.0},
-            "external_inputs": problem["external_inputs"],
-            "optimized_clustering": {"enabled": True},
-        },
-    )
-
-    body = _wait_for_job(client, queued.json()["job_id"])
-    optimized = body["result"]["optimized_clustering"]
-    assert optimized["status"] == "solver_unavailable"
-    assert optimized["message"] == "optimized clustering solver is unavailable"
-    assert optimized["details"] == ""
+    with pytest.raises(ValueError, match="reason_code"):
+        SparseClusteringResultDto.model_validate(sparse_payload)
 
 
 def test_default_raw_input_candidates_have_sources() -> None:

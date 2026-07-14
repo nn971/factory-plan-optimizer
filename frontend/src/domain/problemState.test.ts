@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ProblemDto } from '../api/dtos';
 import type { EditableProblem } from './problemState';
-import { createEditableProblem, toSolveRequest } from './problemState';
+import { DEFAULT_CLUSTERING_GUARDRAILS, EditableProblemValidationError, createEditableProblem, toSolveRequest, toValidatedSolveRequest, validateEditableProblem } from './problemState';
 
 describe('createEditableProblem', () => {
   it('falls back to external inputs when raw input candidates are absent', () => {
@@ -34,6 +34,41 @@ describe('createEditableProblem', () => {
       },
     ]);
   });
+
+  it('uses API clustering defaults when present', () => {
+    const editable = createEditableProblem({
+      package_id: 'package-a',
+      scenario_id: 'scenario-a',
+      scenario_label: 'Scenario',
+      items: [],
+      demands: {},
+      target_demands: [],
+      rate_units: 'items/s',
+      default_solve_mode: 'hard_demand',
+      external_inputs: [],
+      raw_input_candidates: [],
+      recipe_ids: [],
+      milestones: [],
+      item_metadata: {},
+      recipe_metadata: {},
+      sparse_clustering_defaults: {
+        mode: 'fast',
+        max_runtime_seconds: 7,
+        hub_item_top_k: 80,
+        port_cost_weight: 900,
+        size_penalty_weight: 11,
+        flow_cost_weight: 0,
+        min_cluster_size_ratio: 0.25,
+        max_cluster_size_ratio: 2,
+        max_refinement_passes: null,
+        port_epsilon: 1e-8,
+      },
+    });
+
+    expect(editable.sparseClustering.maxRuntimeSeconds).toBe('7');
+    expect(editable.sparseClustering.maxRefinementPasses).toBe('');
+    expect(editable.clusteringGuardrails.sparse.maxRuntimeSecondsExclusiveMin).toBe(0);
+  });
 });
 
 describe('toSolveRequest', () => {
@@ -48,48 +83,8 @@ describe('toSolveRequest', () => {
     expect(toSolveRequest(editableProblem(), 'package-a', '  ')).not.toHaveProperty('selected_milestone');
   });
 
-  it('omits optimized clustering config by default', () => {
-    expect(toSolveRequest(editableProblem())).not.toHaveProperty('optimized_clustering');
-  });
-
   it('omits sparse clustering config by default', () => {
     expect(toSolveRequest(editableProblem())).not.toHaveProperty('sparse_clustering');
-  });
-
-  it('submits optimized clustering config only when enabled', () => {
-    expect(
-      toSolveRequest({
-        ...editableProblem(),
-        optimizedClustering: {
-          enabled: true,
-          allowRecipeSplitting: false,
-          splittableRecipeIds: 'recipe-a\nrecipe-b, recipe-a',
-          preset: 'fewer_ports',
-          reportingEpsilon: '0.00001',
-          timeLimitSeconds: '30',
-          flowCostPerQuantity: '2',
-          portCostPerItemType: '200',
-          clusterSizePenaltyWeight: '7',
-          minClusterSize: '3',
-          maxClusterSize: '12',
-          maxClusterSizeConstraint: 'hard',
-        },
-      }).optimized_clustering,
-    ).toEqual({
-      enabled: true,
-      mode: 'continuous_split',
-      preset: 'fewer_ports',
-      allow_recipe_splitting: false,
-      splittable_recipe_ids: ['recipe-a', 'recipe-b'],
-      reporting_epsilon: 0.00001,
-      time_limit_seconds: 30,
-      flow_cost_per_quantity: 2,
-      port_cost_per_item_type: 200,
-      cluster_size_penalty_weight: 7,
-      min_cluster_size: 3,
-      max_cluster_size: 12,
-      max_cluster_size_constraint: 'hard',
-    });
   });
 
   it('submits sparse clustering config only when enabled', () => {
@@ -130,6 +125,79 @@ describe('toSolveRequest', () => {
       port_epsilon: 0.000001,
     });
   });
+
+  it('does not send an explicit sparse fast refinement override by default', () => {
+    const request = toSolveRequest({
+      ...editableProblem(),
+      sparseClustering: {
+        ...editableProblem().sparseClustering,
+        enabled: true,
+        mode: 'fast',
+      },
+    });
+
+    expect(request.sparse_clustering?.max_refinement_passes).toBeNull();
+  });
+});
+
+describe('validateEditableProblem', () => {
+  it('reports malformed demand and external input numbers', () => {
+    const errors = validateEditableProblem({
+      ...editableProblem(),
+      demands: { 'science-pack-a': 'abc', 'science-pack-b': '-1' },
+      externalInputs: [{ item_id: 'iron-ore', kind: 'item', enabled: true, cost: 'bad', capacity: '-5', defaultApproved: true }],
+    });
+
+    expect(errors.map((error) => error.field)).toEqual([
+      'demands.science-pack-a',
+      'demands.science-pack-b',
+      'externalInputs.iron-ore.cost',
+      'externalInputs.iron-ore.capacity',
+    ]);
+  });
+
+  it('applies sparse clustering integer, guardrail, and relationship checks', () => {
+    const errors = validateEditableProblem({
+      ...editableProblem(),
+      sparseClustering: {
+        ...editableProblem().sparseClustering,
+        enabled: true,
+        targetClusterCount: '1',
+        minClusterCount: '2',
+        maxClusterCount: 'bad',
+        maxRuntimeSeconds: '0',
+        hubItemTopK: '1.5',
+        maxRefinementPasses: '2.2',
+        minClusterSizeRatio: '2',
+        maxClusterSizeRatio: '1',
+      },
+    });
+
+    expect(errors.map((error) => error.field)).toEqual(expect.arrayContaining([
+      'sparseClustering.maxClusterCount',
+      'sparseClustering.maxRuntimeSeconds',
+      'sparseClustering.hubItemTopK',
+      'sparseClustering.maxRefinementPasses',
+      'sparseClustering.targetClusterCount',
+      'sparseClustering.minClusterSizeRatio',
+    ]));
+  });
+});
+
+describe('toValidatedSolveRequest', () => {
+  it('throws structured errors instead of serializing invalid numbers', () => {
+    const editable = { ...editableProblem(), demands: { 'science-pack-a': 'not-a-number' } };
+
+    expect(() => toValidatedSolveRequest(editable)).toThrow(EditableProblemValidationError);
+    try {
+      toValidatedSolveRequest(editable);
+    } catch (error) {
+      expect(error).toBeInstanceOf(EditableProblemValidationError);
+      expect((error as EditableProblemValidationError).errors).toEqual([
+        { field: 'demands.science-pack-a', message: 'Target rate must be a nonnegative number.' },
+      ]);
+    }
+  });
 });
 
 function editableProblem(): EditableProblem {
@@ -138,20 +206,6 @@ function editableProblem(): EditableProblem {
     displayRateUnits: 'items_per_second',
     demands: { 'science-pack-a': '1' },
     externalInputs: [],
-    optimizedClustering: {
-      enabled: false,
-      allowRecipeSplitting: false,
-      splittableRecipeIds: '',
-      preset: 'balanced',
-      reportingEpsilon: '0.000001',
-      timeLimitSeconds: '60',
-      flowCostPerQuantity: '1',
-      portCostPerItemType: '100',
-      clusterSizePenaltyWeight: '10',
-      minClusterSize: '5',
-      maxClusterSize: '15',
-      maxClusterSizeConstraint: 'soft',
-    },
     sparseClustering: {
       enabled: false,
       mode: 'fast',
@@ -165,8 +219,9 @@ function editableProblem(): EditableProblem {
       flowCostWeight: '0',
       minClusterSizeRatio: '0.5',
       maxClusterSizeRatio: '1.5',
-      maxRefinementPasses: '8',
+      maxRefinementPasses: '',
       portEpsilon: '0.000000001',
     },
+    clusteringGuardrails: DEFAULT_CLUSTERING_GUARDRAILS,
   };
 }

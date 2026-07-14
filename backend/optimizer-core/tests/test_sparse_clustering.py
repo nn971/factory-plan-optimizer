@@ -12,8 +12,11 @@ from game_data_extractor.data_contracts import (
 )
 
 from factory_plan_optimizer.optimizer.sparse_clustering import (
+    BALANCED_DEFAULT_REFINEMENT_PASSES,
+    FAST_DEFAULT_REFINEMENT_PASSES,
     SparseClusteringConfig,
     run_sparse_clustering,
+    sparse_clustering_defaults,
 )
 from factory_plan_optimizer.optimizer.sparse_engines import _refine
 from factory_plan_optimizer.optimizer.sparse_graph import build_sparse_graph
@@ -24,8 +27,22 @@ from factory_plan_optimizer.optimizer.sparse_partition import (
     score_partition,
 )
 
-DEFAULT_BALANCED_REFINEMENT_PASSES = 8
 EXTERNAL_INPUT_AND_FINAL_OUTPUT_COUNT = 2
+
+
+def test_sparse_clustering_defaults_match_config_and_mode_effective_passes() -> None:
+    defaults = sparse_clustering_defaults()
+    cfg = SparseClusteringConfig()
+
+    assert defaults["mode"] == cfg.mode == "fast"
+    assert defaults["max_refinement_passes"] is None
+    assert defaults["max_runtime_seconds"] == cfg.max_runtime_seconds
+    assert defaults["effective_refinement_passes_by_mode"] == {
+        "fast": FAST_DEFAULT_REFINEMENT_PASSES,
+        "balanced": BALANCED_DEFAULT_REFINEMENT_PASSES,
+    }
+    assert defaults["guardrails"]["max_runtime_seconds"] == {"exclusive_min": 0.0}
+    assert defaults["guardrails"]["hub_item_top_k"] == {"min": 1, "integer": True}
 
 
 def _pkg(recipes: tuple[Recipe, ...] | None = None) -> FactoryDataPackage:
@@ -138,6 +155,7 @@ def test_boundary_external_ports_and_surplus_unmet_are_separate() -> None:
         config=SparseClusteringConfig(enabled=True, target_cluster_count=2),
     )
     assert result["status"] == "success"
+    assert "reason_code" not in result
     ports = result["boundary_port_types"]["items"]
     assert any(
         port["direction"] == "output" and port["item_id"] == "science" for port in ports
@@ -168,11 +186,12 @@ def test_deterministic_output_and_balanced_refinement() -> None:
     second = run_sparse_clustering(_pkg(), **kwargs, config=cfg)
     assert first == second
     assert first["engine"] == "port-aware-seeded-refinement"
-    assert first["fallback"] is None
-    assert first["fallback_attempted"] is False
+    assert "fallback" not in first
+    assert "fallback_attempted" not in first
+    assert "fallback_mode" not in first
     assert (
         first["port_aware_objective"]["refinement_passes"]
-        <= DEFAULT_BALANCED_REFINEMENT_PASSES
+        <= BALANCED_DEFAULT_REFINEMENT_PASSES
     )
 
 
@@ -205,7 +224,7 @@ def test_fast_uses_one_refinement_pass_and_balanced_defaults_to_more() -> None:
     assert balanced["effective_config"]["max_refinement_passes"] is None
     assert (
         balanced["port_aware_objective"]["refinement_passes"]
-        <= DEFAULT_BALANCED_REFINEMENT_PASSES
+        <= BALANCED_DEFAULT_REFINEMENT_PASSES
     )
 
 
@@ -273,34 +292,24 @@ def test_local_refinement_reduces_objective_on_crafted_case() -> None:
     assert after.total_score < before.total_score
 
 
-def test_exact_small_unsupported_disabled_and_no_active_dispatch() -> None:
-    assert (
-        run_sparse_clustering(
-            _pkg(),
-            recipe_rates={},
-            external_supplies={},
-            config=SparseClusteringConfig(),
-        )["status"]
-        == "skipped"
+def test_disabled_and_no_active_dispatch_are_skipped() -> None:
+    disabled = run_sparse_clustering(
+        _pkg(),
+        recipe_rates={},
+        external_supplies={},
+        config=SparseClusteringConfig(),
     )
-    assert (
-        run_sparse_clustering(
-            _pkg(),
-            recipe_rates={},
-            external_supplies={},
-            config=SparseClusteringConfig(enabled=True),
-        )["status"]
-        == "skipped"
+    no_active = run_sparse_clustering(
+        _pkg(),
+        recipe_rates={},
+        external_supplies={},
+        config=SparseClusteringConfig(enabled=True),
     )
-    assert (
-        run_sparse_clustering(
-            _pkg(),
-            recipe_rates={},
-            external_supplies={},
-            config=SparseClusteringConfig(enabled=True, mode="exact-small"),
-        )["status"]
-        == "unsupported"
-    )
+
+    assert disabled["status"] == "skipped"
+    assert disabled["reason_code"] == "disabled"
+    assert no_active["status"] == "skipped"
+    assert no_active["reason_code"] == "no_active_recipes"
 
 
 @pytest.mark.parametrize(
@@ -328,6 +337,7 @@ def test_exact_small_unsupported_disabled_and_no_active_dispatch() -> None:
             result_caps={"recipe_assignments": 1.5},  # type: ignore[dict-item]
         ),
         SparseClusteringConfig(enabled=True, result_caps={"unknown": 1}),
+        SparseClusteringConfig(enabled=True, mode="exact-small"),  # type: ignore[arg-type]
     ],
 )
 def test_config_validation(config: SparseClusteringConfig) -> None:

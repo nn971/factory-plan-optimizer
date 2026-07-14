@@ -23,23 +23,19 @@ describe('SparseClusteringPanel', () => {
   });
 
   it('renders non-success status without detail tables', () => {
-    const html = renderToStaticMarkup(<SparseClusteringPanel result={result({ status: 'unsupported', message: 'exact-small is not available' })} />);
+    const html = renderToStaticMarkup(<SparseClusteringPanel result={result({ status: 'failed', message: 'sparse clustering failed' })} />);
 
-    expect(html).toContain('Unsupported');
-    expect(html).toContain('exact-small is not available');
+    expect(html).toContain('Failed');
+    expect(html).toContain('sparse clustering failed');
     expect(html).toContain('No sparse cluster detail tables');
   });
 
-  it('surfaces fallback and truncation warnings calmly', () => {
+  it('surfaces truncation warnings calmly', () => {
     const html = renderToStaticMarkup(<SparseClusteringPanel result={result({
       mode: 'balanced',
-      fallback_attempted: true,
-      fallback_mode: 'fast',
-      fallback: { from_mode: 'balanced', to_mode: 'fast', reason: 'balanced_refinement_deferred' },
       boundary_port_types: { items: [], total_count: 8, truncated: true },
     })} />);
 
-    expect(html).toContain('Fallback used fast');
     expect(html).toContain('net ports are capped');
   });
 });
@@ -51,9 +47,6 @@ function result(patch: Partial<SparseClusteringResultDto> = {}): SparseClusterin
     mode: 'fast',
     graph_type: 'recipe-to-recipe',
     optimization_effect: 'none',
-    fallback_attempted: false,
-    fallback_mode: null,
-    fallback: null,
     engine: 'deterministic-fast',
     cluster_count: 2,
     target_cluster_count: 3,

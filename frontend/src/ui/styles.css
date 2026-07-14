@@ -571,21 +571,21 @@ select {
   margin: 0;
 }
 
-.optimized-clustering-controls {
+.sparse-clustering-controls {
   margin: 1rem 0;
   background:
     radial-gradient(circle at 90% 10%, rgba(35, 91, 128, 0.12), transparent 15rem),
     white;
 }
 
-.optimized-control-heading {
+.sparse-control-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
 }
 
-.optimized-enable {
+.sparse-enable {
   border: 1px solid rgba(90, 59, 30, 0.13);
   border-radius: 999px;
   padding: 0.55rem 0.75rem;
@@ -628,7 +628,7 @@ select {
   font-weight: 400;
 }
 
-.optimized-advanced {
+.sparse-advanced {
   margin-top: 0.85rem;
   border: 1px solid rgba(90, 59, 30, 0.12);
   border-radius: 18px;
@@ -636,7 +636,7 @@ select {
   background: rgba(255, 253, 248, 0.68);
 }
 
-.optimized-advanced summary {
+.sparse-advanced summary {
   cursor: pointer;
   color: #5a3b1e;
   font-weight: 800;
@@ -773,6 +773,77 @@ select {
   font-size: 0.8rem;
 }
 
+.flow-mode-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 1rem 0 0;
+  padding: 0.35rem;
+  border: 1px solid rgba(90, 59, 30, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 253, 248, 0.82);
+  box-shadow: 0 12px 28px rgba(89, 54, 20, 0.06);
+}
+
+.flow-mode-controls legend {
+  padding: 0 0.35rem;
+  color: #786a58;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flow-mode-controls button {
+  display: grid;
+  gap: 0.08rem;
+  border-color: transparent;
+  padding: 0.46rem 0.72rem;
+  background: transparent;
+  text-align: left;
+}
+
+.flow-mode-controls button strong,
+.flow-mode-controls button span {
+  display: block;
+}
+
+.flow-mode-controls button span {
+  color: #786a58;
+  font-size: 0.72rem;
+}
+
+.flow-mode-controls button.active {
+  border-color: #1f3b2c;
+  background: #1f3b2c;
+  color: #fff8eb;
+}
+
+.flow-mode-controls button.active span {
+  color: #dfe8dc;
+}
+
+.flow-overlay-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.65rem;
+  align-items: center;
+  width: fit-content;
+  margin: 0.8rem 0 0;
+  border: 1px solid rgba(65, 119, 82, 0.28);
+  border-radius: 999px;
+  padding: 0.42rem 0.7rem;
+  background: #f3fbf2;
+  color: #31533b;
+  font-size: 0.82rem;
+}
+
+.flow-overlay-note.warning {
+  border-color: rgba(180, 66, 50, 0.28);
+  background: #fff3ee;
+  color: #8a2c20;
+}
+
 .flow-diagnostic-spotlight {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
@@ -854,6 +925,7 @@ select {
     linear-gradient(180deg, rgba(31, 59, 44, 0.04) 1px, transparent 1px),
     rgba(255, 253, 248, 0.72);
   background-size: 42px 42px;
+  container-type: inline-size;
 }
 
 .flow-graph-with-details {
@@ -923,8 +995,9 @@ select {
 
 .flow-graph-svg {
   display: block;
-  min-width: 920px;
   width: 100%;
+  min-width: 0;
+  height: auto;
 }
 
 .flow-edge path {
@@ -977,6 +1050,13 @@ select {
 .flow-node.surplus circle { fill: #b87c1b; stroke: #b87c1b; }
 .flow-node.missing-recipe circle { fill: #fff3ee; stroke: #b44232; }
 .flow-node.cluster circle { fill: #fff1c9; stroke: #c46b22; stroke-width: 5; }
+.flow-node.optimizer-overlay circle { stroke-width: 6; }
+.flow-node.optimizer-overlay.cluster-accent-1 circle { stroke: #235b80; }
+.flow-node.optimizer-overlay.cluster-accent-2 circle { stroke: #2f7e63; }
+.flow-node.optimizer-overlay.cluster-accent-3 circle { stroke: #8a4d18; }
+.flow-node.optimizer-overlay.cluster-accent-4 circle { stroke: #7a4fa3; }
+.flow-node.optimizer-overlay.cluster-accent-5 circle { stroke: #b44232; }
+.flow-node.optimizer-overlay.cluster-accent-6 circle { stroke: #c46b22; }
 
 .flow-node text {
   paint-order: stroke;
@@ -1000,6 +1080,12 @@ select {
   font-size: 10px;
 }
 
+.flow-node .node-overlay-badge {
+  fill: #235b80;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
 .cluster-diagnostics-panel {
   position: relative;
   overflow: hidden;
@@ -1013,7 +1099,7 @@ select {
   box-shadow: 0 22px 60px rgba(89, 54, 20, 0.1);
 }
 
-.optimized-clustering-panel {
+.sparse-clustering-panel {
   position: relative;
   overflow: hidden;
   border: 1px solid rgba(35, 91, 128, 0.18);
@@ -1026,7 +1112,7 @@ select {
   box-shadow: 0 22px 60px rgba(89, 54, 20, 0.1);
 }
 
-.optimized-clustering-panel.quiet {
+.sparse-clustering-panel.quiet {
   background: rgba(255, 253, 248, 0.72);
   box-shadow: none;
 }
@@ -1046,14 +1132,14 @@ select {
   background: #fff3ee;
 }
 
-.optimized-result-grid {
+.sparse-result-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
   margin-top: 1rem;
 }
 
-.optimized-result-grid.wide {
+.sparse-result-grid.wide {
   align-items: start;
 }
 
@@ -1352,7 +1438,7 @@ td {
   .target-row,
   .preset-grid,
   .advanced-grid,
-  .optimized-result-grid {
+  .sparse-result-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1369,8 +1455,22 @@ td {
   .flow-graph-heading,
   .cluster-diagnostics-layout,
   .cluster-diagnostics-hero,
-  .optimized-control-heading {
+  .sparse-control-heading {
     display: grid;
+  }
+
+  .flow-graph-with-details {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-mode-controls {
+    display: flex;
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .flow-mode-controls button {
+    padding: 0.42rem 0.62rem;
   }
 
   .cluster-total-cards,

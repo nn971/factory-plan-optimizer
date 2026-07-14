@@ -62,7 +62,6 @@ class GlobalRecipeLpResult:
     surplus: Mapping[str, float] = field(default_factory=dict)
     balance_residuals: Mapping[str, float] = field(default_factory=dict)
     cluster_diagnostics: Mapping[str, object] = field(default_factory=dict)
-    optimized_clustering: Mapping[str, object] | None = None
     sparse_clustering: Mapping[str, object] | None = None
     message: str = ""
     details: str = ""

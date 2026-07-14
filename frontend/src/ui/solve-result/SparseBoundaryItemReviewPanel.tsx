@@ -35,7 +35,7 @@ export function SparseBoundaryItemReviewPanel({ result }: { result: SparseCluste
           <p className="eyebrow">Sparse cluster review</p>
           <h3 id="sparse-boundary-review-title">Net port review</h3>
           <p className="muted">
-            These rows come directly from sparse clustering. Net ports are signed item balances for each cluster, not routed train paths.
+            These rows come from the sparse post-process. Net ports are signed item balances for each cluster, not exact routing or optimizer allocation.
           </p>
         </div>
         {objective && (

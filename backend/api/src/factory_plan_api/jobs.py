@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import TYPE_CHECKING, Literal
 
+from factory_plan_api.config import DEFAULT_API_LIMITS
 from factory_plan_api.dtos import ErrorDto, SolveJobDto, SolveQueuedDto, SolveResultDto
 
 if TYPE_CHECKING:
@@ -26,9 +27,9 @@ class _JobRecord:
 class SolveJobStore:
     def __init__(
         self,
-        max_workers: int = 2,
-        max_active_jobs: int = 8,
-        max_retained_jobs: int = 64,
+        max_workers: int = DEFAULT_API_LIMITS.max_solve_workers,
+        max_active_jobs: int = DEFAULT_API_LIMITS.max_active_jobs,
+        max_retained_jobs: int = DEFAULT_API_LIMITS.max_retained_jobs,
     ) -> None:
         self._lock = Lock()
         self._executor = ThreadPoolExecutor(max_workers=max_workers)

@@ -25,13 +25,19 @@ if TYPE_CHECKING:
 
     from game_data_extractor.data_contracts import FactoryDataPackage
 
-SparseClusteringMode = Literal["fast", "balanced", "exact-small"]
+SparseClusteringMode = Literal["fast", "balanced"]
 SparseClusteringStatus = Literal[
     "success",
     "skipped",
     "model_too_large",
     "timeout",
-    "unsupported",
+    "failed",
+]
+SparseClusteringReasonCode = Literal[
+    "disabled",
+    "no_active_recipes",
+    "model_too_large",
+    "timeout",
     "failed",
 ]
 
@@ -44,6 +50,10 @@ DEFAULT_RESULT_CAPS = {
     "hub_summaries": 100,
     "cluster_summaries": 100,
 }
+FAST_DEFAULT_REFINEMENT_PASSES = 1
+BALANCED_DEFAULT_REFINEMENT_PASSES = 8
+MIN_MAX_RUNTIME_SECONDS_EXCLUSIVE = 0.0
+MIN_HUB_ITEM_TOP_K = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +83,7 @@ class SparseClusteringConfig:
 
     def validate(self) -> None:  # noqa: C901,PLR0912
         """Raise ValueError when config settings are contradictory or invalid."""
-        if self.mode not in {"fast", "balanced", "exact-small"}:
+        if self.mode not in {"fast", "balanced"}:
             message = f"invalid sparse clustering mode: {self.mode}"
             raise ValueError(message)
         for name in ("target_cluster_count", "min_cluster_count", "max_cluster_count"):
@@ -151,12 +161,11 @@ def run_sparse_clustering(  # noqa: PLR0913
     cfg = config or SparseClusteringConfig()
     cfg.validate()
     if not cfg.enabled:
-        return _status("skipped", cfg, "sparse clustering is disabled")
-    if cfg.mode == "exact-small":
         return _status(
-            "unsupported",
+            "skipped",
             cfg,
-            "exact-small sparse clustering is not supported in the MVP",
+            "sparse clustering is disabled",
+            reason_code="disabled",
         )
     deadline = monotonic() + cfg.max_runtime_seconds
     graph = build_sparse_graph(
@@ -166,7 +175,12 @@ def run_sparse_clustering(  # noqa: PLR0913
         hub_item_top_k=cfg.hub_item_top_k,
     )
     if not graph.active_recipes:
-        return _status("skipped", cfg, "no active recipes") | {
+        return _status(
+            "skipped",
+            cfg,
+            "no active recipes",
+            reason_code="no_active_recipes",
+        ) | {
             "graph_statistics": _graph_stats(graph, cfg),
         }
     target = automatic_target(
@@ -180,10 +194,9 @@ def run_sparse_clustering(  # noqa: PLR0913
             "timeout",
             cfg,
             "sparse clustering timed out before engine dispatch",
+            reason_code="timeout",
         ) | {"graph_statistics": _graph_stats(graph, cfg)}
     warnings: list[str] = []
-    fallback_attempted = False
-    fallback_mode = None
     partition_config = PartitionConfig(
         target_k=target,
         active_recipe_count=len(graph.active_recipes),
@@ -204,7 +217,11 @@ def run_sparse_clustering(  # noqa: PLR0913
     }
     max_passes = cfg.max_refinement_passes
     if max_passes is None:
-        max_passes = 1 if cfg.mode == "fast" else 8
+        max_passes = (
+            FAST_DEFAULT_REFINEMENT_PASSES
+            if cfg.mode == "fast"
+            else BALANCED_DEFAULT_REFINEMENT_PASSES
+        )
     try:
         engine_result = PortAwareEngine(max_refinement_passes=max_passes).cluster(
             recipe_vectors,
@@ -214,7 +231,12 @@ def run_sparse_clustering(  # noqa: PLR0913
             deadline,
         )
     except TimeoutError:
-        return _status("timeout", cfg, "sparse clustering timed out") | {
+        return _status(
+            "timeout",
+            cfg,
+            "sparse clustering timed out",
+            reason_code="timeout",
+        ) | {
             "graph_statistics": _graph_stats(graph, cfg),
         }
     assignments = engine_result.assignments
@@ -251,9 +273,6 @@ def run_sparse_clustering(  # noqa: PLR0913
         "mode": cfg.mode,
         "engine": "port-aware-seeded-refinement",
         "optimization_effect": "none",
-        "fallback_attempted": fallback_attempted,
-        "fallback_mode": fallback_mode,
-        "fallback": _fallback_compat(cfg.mode, fallback_mode),
         "graph_type": cfg.graph_type,
         "cluster_count": actual_count,
         "target_cluster_count": target,
@@ -277,15 +296,16 @@ def _status(
     status: SparseClusteringStatus,
     cfg: SparseClusteringConfig,
     message: str,
+    *,
+    reason_code: SparseClusteringReasonCode,
 ) -> dict[str, Any]:
     return {
         "status": status,
+        "reason_code": reason_code,
         "message": message,
         "mode": cfg.mode,
         "graph_type": cfg.graph_type,
         "optimization_effect": "none",
-        "fallback_attempted": False,
-        "fallback_mode": None,
         "warnings": [],
         "effective_config": _effective_config(cfg),
     }
@@ -309,16 +329,6 @@ def _graph_stats(graph: SparseGraph, cfg: SparseClusteringConfig) -> dict[str, A
     }
 
 
-def _fallback_compat(mode: str, fallback_mode: str | None) -> dict[str, str] | None:
-    if fallback_mode is None:
-        return None
-    return {
-        "from_mode": mode,
-        "to_mode": fallback_mode,
-        "reason": "balanced_refinement_deferred",
-    }
-
-
 def _effective_config(cfg: SparseClusteringConfig) -> dict[str, Any]:
     return {
         "mode": cfg.mode,
@@ -334,6 +344,54 @@ def _effective_config(cfg: SparseClusteringConfig) -> dict[str, Any]:
         "max_cluster_size_ratio": cfg.max_cluster_size_ratio,
         "port_epsilon": cfg.port_epsilon,
         "result_caps": _caps(cfg),
+    }
+
+
+def sparse_clustering_defaults() -> dict[str, Any]:
+    """Return public request defaults owned by optimizer-core."""
+    cfg = SparseClusteringConfig()
+    return {
+        "enabled": cfg.enabled,
+        "mode": cfg.mode,
+        "target_cluster_count": cfg.target_cluster_count,
+        "min_cluster_count": cfg.min_cluster_count,
+        "max_cluster_count": cfg.max_cluster_count,
+        "max_runtime_seconds": cfg.max_runtime_seconds,
+        "min_recipe_rate": cfg.min_recipe_rate,
+        "hub_item_top_k": cfg.hub_item_top_k,
+        "port_cost_weight": cfg.port_cost_weight,
+        "size_penalty_weight": cfg.size_penalty_weight,
+        "flow_cost_weight": cfg.flow_cost_weight,
+        "min_cluster_size_ratio": cfg.min_cluster_size_ratio,
+        "max_cluster_size_ratio": cfg.max_cluster_size_ratio,
+        "max_refinement_passes": cfg.max_refinement_passes,
+        "effective_refinement_passes_by_mode": {
+            "fast": FAST_DEFAULT_REFINEMENT_PASSES,
+            "balanced": BALANCED_DEFAULT_REFINEMENT_PASSES,
+        },
+        "port_epsilon": cfg.port_epsilon,
+        "seed": cfg.seed,
+        "result_caps": _caps(cfg),
+        "guardrails": sparse_clustering_guardrails(),
+    }
+
+
+def sparse_clustering_guardrails() -> dict[str, Any]:
+    """Return sparse request guardrails for clients."""
+    return {
+        "max_runtime_seconds": {"exclusive_min": MIN_MAX_RUNTIME_SECONDS_EXCLUSIVE},
+        "hub_item_top_k": {"min": MIN_HUB_ITEM_TOP_K, "integer": True},
+        "cluster_counts": {"min": 1, "integer": True},
+        "max_refinement_passes": {"min": 0, "integer": True, "nullable": True},
+        "nonnegative_fields": [
+            "min_recipe_rate",
+            "port_cost_weight",
+            "size_penalty_weight",
+            "flow_cost_weight",
+            "min_cluster_size_ratio",
+            "max_cluster_size_ratio",
+            "port_epsilon",
+        ],
     }
 
 

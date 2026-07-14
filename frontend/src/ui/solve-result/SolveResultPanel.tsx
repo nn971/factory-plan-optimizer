@@ -8,7 +8,6 @@ import {
 import { buildActiveFlowGraph } from '../../domain/solveResultFlow';
 import { ClusterDiagnosticsPanel } from './ClusterDiagnosticsPanel';
 import { FlowGraph } from './FlowGraph';
-import { OptimizedClusteringPanel } from './OptimizedClusteringPanel';
 import { RawResultTables } from './RawResultTables';
 import { SparseBoundaryItemReviewPanel } from './SparseBoundaryItemReviewPanel';
 import { SparseClusteringPanel } from './SparseClusteringPanel';
@@ -35,7 +34,7 @@ export function SolveResultPanel({
   const graphStatus = graphAvailability({ job, explorer, explorerLoading, explorerStale, currentPackageId });
   const canLoadRecipeData = Boolean(job.result && !explorerLoading && graphStatus.tone !== 'success');
   const recipeDataActionLabel = graphStatus.tone === 'warning' ? 'Refresh recipe data' : 'Load recipe data';
-  const graph = graphStatus.tone === 'success' && job.result && explorer
+  const graph = job.result
     ? buildActiveFlowGraph(job.result, explorer)
     : null;
   const hasSuccessfulSparseClustering = job.result?.sparse_clustering?.status === 'success';
@@ -75,7 +74,6 @@ export function SolveResultPanel({
               <button type="button" onClick={onLoadExplorer}>{recipeDataActionLabel}</button>
             )}
           </section>
-          <OptimizedClusteringPanel result={job.result.optimized_clustering} />
           <SparseClusteringPanel result={job.result.sparse_clustering} />
           {hasSuccessfulSparseClustering ? (
             <SparseBoundaryItemReviewPanel result={job.result.sparse_clustering} />

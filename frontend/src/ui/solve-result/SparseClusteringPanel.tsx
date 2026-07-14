@@ -15,7 +15,7 @@ import {
 export function SparseClusteringPanel({ result }: { result: SparseClusteringResultDto | null | undefined }) {
   if (result == null) {
     return (
-      <section className="optimized-clustering-panel sparse-clustering-panel quiet" aria-labelledby="sparse-clustering-result-title">
+      <section className="sparse-clustering-panel quiet" aria-labelledby="sparse-clustering-result-title">
         <p className="eyebrow">Sparse clustering</p>
         <h3 id="sparse-clustering-result-title">Not requested</h3>
         <p className="muted">Run sparse clustering to see a summary-first recipe graph partition for large plans.</p>
@@ -28,13 +28,13 @@ export function SparseClusteringPanel({ result }: { result: SparseClusteringResu
   const canShowDetails = result.status === 'success';
 
   return (
-    <section className="optimized-clustering-panel sparse-clustering-panel" aria-labelledby="sparse-clustering-result-title">
+    <section className="sparse-clustering-panel" aria-labelledby="sparse-clustering-result-title">
       <div className="cluster-diagnostics-hero">
         <div>
           <p className="eyebrow">Sparse clustering</p>
           <h3 id="sparse-clustering-result-title">Recipe graph overview</h3>
           <p className="muted">
-            Explanation-only clustering for the solved recipe graph. It does not change recipe rates or the optimized objective.
+            Sparse post-process explanation for the solved recipe graph. It is not optimizer allocation and does not change recipe rates.
           </p>
           <div className="scenario-meta sparse-meta">
             <span>{result.mode} mode</span>
@@ -55,9 +55,6 @@ export function SparseClusteringPanel({ result }: { result: SparseClusteringResu
       <section className={`notice ${noticeClassForTone(status.tone)}`}>
         <strong>{status.label}</strong>
         <p>{result.message || status.description}</p>
-        {result.fallback_attempted && (
-          <p>Fallback used {result.fallback_mode ?? 'another mode'}{result.fallback?.reason ? ` because ${componentLabel(result.fallback.reason)}` : ''}.</p>
-        )}
       </section>
 
       {warnings.length > 0 && (
@@ -76,19 +73,19 @@ export function SparseClusteringPanel({ result }: { result: SparseClusteringResu
       {canShowDetails && (
         <details className="cluster-cost-note sparse-details" open>
           <summary>Cluster details</summary>
-          <div className="optimized-result-grid">
+          <div className="sparse-result-grid">
             <CompactMap title="Port-aware objective" values={result.port_aware_objective ?? {}} />
             <CompactMap title="Graph statistics" values={result.graph_statistics ?? {}} />
           </div>
-          <div className="optimized-result-grid wide">
+          <div className="sparse-result-grid wide">
             <ClusterSummaryTable capped={result.cluster_summaries} />
             <HubSummaryTable capped={result.hub_summaries} />
           </div>
-          <div className="optimized-result-grid wide">
+          <div className="sparse-result-grid wide">
             <BoundaryPortTable capped={result.boundary_port_types} />
             <ExternalBoundaryPortTable capped={result.external_boundary_port_types} />
           </div>
-          <div className="optimized-result-grid wide">
+          <div className="sparse-result-grid wide">
             <BoundaryFlowTable capped={result.boundary_flows} />
             <SurplusUnmetTable capped={result.surplus_unmet_summary} />
           </div>

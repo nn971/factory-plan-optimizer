@@ -25,8 +25,6 @@ export function describeSparseClusteringStatus(status: SparseClusteringStatusDto
       return { label: 'Model too large', tone: 'warning', description: 'The solved graph exceeded the current sparse clustering guardrail.' };
     case 'timeout':
       return { label: 'Timed out', tone: 'warning', description: 'Sparse clustering stopped before it could complete.' };
-    case 'unsupported':
-      return { label: 'Unsupported', tone: 'info', description: 'The requested sparse clustering mode is not available in this build.' };
     case 'failed':
       return { label: 'Failed', tone: 'error', description: 'Sparse clustering failed, but the main solve result is still available.' };
   }

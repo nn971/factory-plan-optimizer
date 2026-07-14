@@ -5,6 +5,23 @@ import type { SolveJobDto, SolveResultDto, SparseClusteringResultDto } from '../
 import { SolveResultPanel } from './SolveResultPanel';
 
 describe('SolveResultPanel sparse boundary review wiring', () => {
+  it('renders partial ID-only graph when explorer metadata is unavailable', () => {
+    const html = renderToStaticMarkup(
+      <SolveResultPanel
+        job={job({ recipe_rates: { 'make-gear': 1 }, external_supplies: { 'iron-ore': 2 } })}
+        explorer={null}
+        explorerLoading={false}
+        explorerStale={false}
+        onLoadExplorer={() => undefined}
+        currentPackageId="package-a"
+      />,
+    );
+
+    expect(html).toContain('Recipe data not loaded');
+    expect(html).toContain('Active flow graph');
+    expect(html).toContain('Full recipe IO topology is unavailable without explorer recipe metadata');
+  });
+
   it('uses sparse boundary review instead of legacy diagnostics when sparse clustering succeeds', () => {
     const html = renderToStaticMarkup(
       <SolveResultPanel
@@ -65,9 +82,6 @@ function sparseResult(): SparseClusteringResultDto {
     mode: 'fast',
     graph_type: 'recipe-to-recipe',
     optimization_effect: 'none',
-    fallback_attempted: false,
-    fallback_mode: null,
-    fallback: null,
     engine: 'port-aware',
     cluster_count: 1,
     target_cluster_count: 1,

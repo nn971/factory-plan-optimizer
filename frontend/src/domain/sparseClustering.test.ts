@@ -19,14 +19,13 @@ describe('sparse clustering helpers', () => {
   });
 
   it('describes every status', () => {
-    const statuses = ['success', 'skipped', 'model_too_large', 'timeout', 'unsupported', 'failed'] as const;
+    const statuses = ['success', 'skipped', 'model_too_large', 'timeout', 'failed'] as const;
 
     expect(statuses.map((status) => describeSparseClusteringStatus(status).label)).toEqual([
       'Ready',
       'Skipped',
       'Model too large',
       'Timed out',
-      'Unsupported',
       'Failed',
     ]);
   });
@@ -79,9 +78,6 @@ function sparseResult(patch: Partial<SparseClusteringResultDto> = {}): SparseClu
     mode: 'fast',
     graph_type: 'recipe-to-recipe',
     optimization_effect: 'none',
-    fallback_attempted: false,
-    fallback_mode: null,
-    fallback: null,
     engine: 'deterministic-fast',
     cluster_count: 2,
     target_cluster_count: 2,

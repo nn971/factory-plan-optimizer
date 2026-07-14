@@ -81,8 +81,7 @@ runtime deadline checks.
 Modes:
 
 - `fast`: seeded assignment plus one refinement pass;
-- `balanced`: seeded assignment plus more refinement passes, bounded by runtime;
-- `exact-small`: structured `unsupported` status for sparse clustering.
+- `balanced`: seeded assignment plus more refinement passes, bounded by runtime.
 
 Split/merge repair is not implemented yet.
 
@@ -121,7 +120,6 @@ diagnostic outside interface, not exact routed flow and not an objective port.
   count.
 - Split/merge repair is deferred, so local refinement can still leave imperfect
   size or port trade-offs.
-- `exact-small` sparse mode is unsupported.
 - Very high-degree hub items still cost CPU while candidate producer/consumer pairs
   are considered, even though retained memory is capped.
 - Result details are intentionally capped; use `total_count`, graph statistics, and
@@ -130,5 +128,4 @@ diagnostic outside interface, not exact routed flow and not an objective port.
   or production choices.
 
 See also `docs/data_interface.md` for package/API contracts and
-`docs/mathematical_model.md` for the global LP and existing optimized-clustering
-model notes.
+`docs/mathematical_model.md` for the global LP model notes.

@@ -8,7 +8,8 @@ export type FlowWarningKind =
   | 'negative-recipe-rate'
   | 'negative-diagnostic-value'
   | 'missing-recipe-metadata'
-  | 'negative-recipe-io-amount';
+  | 'negative-recipe-io-amount'
+  | 'recipe-topology-unavailable';
 
 export type FlowNode = {
   id: string;
@@ -85,6 +86,22 @@ export type DisplayFlowGraph = {
   clusters: FlowCluster[];
 };
 
+export type FlowGraphMode = 'raw' | 'heuristic' | 'optimizer-overlay';
+
+export type OptimizerOverlaySource = 'sparse';
+
+export type OptimizerOverlay =
+  | {
+      available: true;
+      source: OptimizerOverlaySource;
+      label: string;
+      recipeToCluster: Map<string, string>;
+    }
+  | {
+      available: false;
+      reason: string;
+    };
+
 export type FlowDetailRow = {
   label: string;
   id?: string;
@@ -99,10 +116,16 @@ export type FlowSelectionDetails = {
   rows: FlowDetailRow[];
 };
 
+export type FlowSelectionDetailIndex = {
+  detailById: Map<string, FlowSelectionDetails>;
+};
+
 const MIN_CLUSTER_NODE_COUNT = 7;
 const MIN_GRAPH_NODE_COUNT_FOR_CLUSTERING = 13;
 
-export function buildActiveFlowGraph(result: SolveResultDto, explorer: ExplorerResponseDto): ActiveFlowGraph {
+export function buildActiveFlowGraph(result: SolveResultDto, explorer: ExplorerResponseDto | null): ActiveFlowGraph {
+  if (!explorer) return buildPartialIdOnlyFlowGraph(result);
+
   const recipes = new Map(explorer.recipes.map((recipe) => [recipe.id, recipe]));
   const nodes = new Map<string, FlowNode>();
   const edges = new Map<string, FlowEdge>();
@@ -161,7 +184,48 @@ export function buildActiveFlowGraph(result: SolveResultDto, explorer: ExplorerR
   };
 }
 
-export function buildDisplayFlowGraph(graph: ActiveFlowGraph, expandedClusterIds: ReadonlySet<string>): DisplayFlowGraph {
+function buildPartialIdOnlyFlowGraph(result: SolveResultDto): ActiveFlowGraph {
+  const nodes = new Map<string, FlowNode>();
+  const edges = new Map<string, FlowEdge>();
+  const diagnostics = new Map<string, FlowDiagnostic>();
+  const warnings: FlowWarning[] = [
+    {
+      kind: 'recipe-topology-unavailable',
+      message: 'Full recipe IO topology is unavailable without explorer recipe metadata. Showing active recipe and diagnostic IDs only.',
+    },
+  ];
+
+  for (const [recipeId, rate] of Object.entries(result.recipe_rates)) {
+    if (rate < -EPSILON) {
+      warnings.push({
+        kind: 'negative-recipe-rate',
+        recipeId,
+        value: rate,
+        message: `Recipe ${recipeId} has an unexpected negative rate ${rate}.`,
+      });
+    }
+    if (rate > EPSILON) addRecipeNode(nodes, recipeId);
+  }
+
+  addDiagnosticMap(nodes, edges, diagnostics, warnings, result.external_supplies, 'external_supplies', 'external');
+  addDiagnosticMap(nodes, edges, diagnostics, warnings, result.unmet_demand, 'unmet_demand', 'unmet');
+  addDiagnosticMap(nodes, edges, diagnostics, warnings, result.surplus, 'surplus', 'surplus');
+
+  return {
+    nodes: [...nodes.values()].sort(byId),
+    edges: [...edges.values()].sort(byIdThenEndpoints),
+    diagnostics: [...diagnostics.values()].sort(byId),
+    warnings: warnings.sort(byWarning),
+  };
+}
+
+export function buildDisplayFlowGraph(
+  graph: ActiveFlowGraph,
+  expandedClusterIds: ReadonlySet<string>,
+  mode: Exclude<FlowGraphMode, 'optimizer-overlay'> = 'raw',
+): DisplayFlowGraph {
+  if (mode === 'raw') return { nodes: graph.nodes, edges: graph.edges, clusters: [] };
+
   const clusters = buildFlowClusters(graph);
   if (clusters.length === 0) return { nodes: graph.nodes, edges: graph.edges, clusters };
 
@@ -197,6 +261,49 @@ export function buildDisplayFlowGraph(graph: ActiveFlowGraph, expandedClusterIds
     edges: [...visibleEdges.values()].sort(byIdThenEndpoints),
     clusters,
   };
+}
+
+export function buildOptimizerOverlay(graph: ActiveFlowGraph, result: SolveResultDto): OptimizerOverlay {
+  const activeRecipeIds = graph.nodes
+    .filter((node) => node.kind === 'recipe' && node.recipeId)
+    .map((node) => node.recipeId as string)
+    .sort();
+  if (activeRecipeIds.length === 0) {
+    return { available: false, reason: 'No active recipe nodes are available for cluster overlay.' };
+  }
+
+  const sparse = sparseOverlay(result, activeRecipeIds);
+  if (sparse.available || result.sparse_clustering?.status === 'success') return sparse;
+  return { available: false, reason: 'Sparse cluster assignments are not available for this solve.' };
+}
+
+function sparseOverlay(result: SolveResultDto, activeRecipeIds: string[]): OptimizerOverlay {
+  const sparse = result.sparse_clustering;
+  if (sparse?.status !== 'success') return { available: false, reason: 'Sparse cluster assignments are not available for this solve.' };
+  const assignments = sparse.recipe_assignments;
+  if (!assignments) return { available: false, reason: 'Sparse cluster assignments are missing, so cluster overlay is unavailable.' };
+  if (assignments.truncated) return { available: false, reason: 'Sparse cluster assignments were capped, so cluster overlay is unavailable.' };
+
+  const clusterByRecipe = new Map<string, Set<string>>();
+  for (const assignment of assignments.items) {
+    const set = clusterByRecipe.get(assignment.recipe_id) ?? new Set<string>();
+    set.add(String(assignment.cluster_id));
+    clusterByRecipe.set(assignment.recipe_id, set);
+  }
+
+  const recipeToCluster = new Map<string, string>();
+  for (const recipeId of activeRecipeIds) {
+    const clusters = clusterByRecipe.get(recipeId);
+    if (!clusters || clusters.size === 0) {
+      return { available: false, reason: 'Sparse cluster assignments do not cover every active recipe node.' };
+    }
+    if (clusters.size > 1) {
+      return { available: false, reason: 'Sparse cluster assignments are ambiguous for at least one active recipe.' };
+    }
+    recipeToCluster.set(recipeId, [...clusters][0]);
+  }
+
+  return { available: true, source: 'sparse', label: 'Sparse clustering', recipeToCluster };
 }
 
 export function buildFlowClusters(graph: ActiveFlowGraph): FlowCluster[] {
@@ -242,29 +349,54 @@ export function buildFlowSelectionDetails(
   result?: SolveResultDto,
 ): FlowSelectionDetails | null {
   if (!selectedId) return null;
-  const cluster = buildFlowClusters(graph).find((entry) => entry.id === selectedId);
-  if (cluster) {
-    return {
-      id: cluster.id,
-      kind: 'cluster',
-      label: cluster.label,
-      summary: `${cluster.nodeCount} nodes and ${cluster.edgeCount} internal edges.`,
-      rows: [
-        { label: 'Contained nodes', quantity: cluster.nodeCount },
-        { label: 'Contained edges', quantity: cluster.edgeCount },
-        { label: 'Unmet demand diagnostics', quantity: cluster.unmetDemandCount },
-        { label: 'Unmet demand quantity', quantity: cluster.unmetDemandQuantity },
-        { label: 'Surplus diagnostics', quantity: cluster.surplusCount },
-        { label: 'Surplus quantity', quantity: cluster.surplusQuantity },
-        { label: 'Warnings touching cluster nodes', quantity: cluster.warningCount },
-        { label: 'Missing recipe diagnostics', quantity: cluster.missingRecipeCount },
-      ],
-    };
+  return buildFlowSelectionDetailIndex(graph, result).detailById.get(selectedId) ?? null;
+}
+
+export function buildFlowSelectionDetailIndex(
+  graph: ActiveFlowGraph,
+  result?: SolveResultDto,
+  clusters: FlowCluster[] = buildFlowClusters(graph),
+): FlowSelectionDetailIndex {
+  const detailById = new Map<string, FlowSelectionDetails>();
+  const diagnosticsById = new Map(graph.diagnostics.map((diagnostic) => [diagnostic.id, diagnostic]));
+  const edgesByNode = new Map<string, FlowEdge[]>();
+  for (const edge of graph.edges) {
+    appendEdge(edgesByNode, edge.source, edge);
+    appendEdge(edgesByNode, edge.target, edge);
   }
 
-  const node = graph.nodes.find((entry) => entry.id === selectedId);
-  if (!node) return null;
-  const connectedEdges = graph.edges.filter((edge) => edge.source === node.id || edge.target === node.id);
+  for (const cluster of clusters) detailById.set(cluster.id, clusterDetails(cluster));
+  for (const node of graph.nodes) {
+    detailById.set(node.id, nodeDetails(node, edgesByNode.get(node.id) ?? [], diagnosticsById, result));
+  }
+  return { detailById };
+}
+
+function clusterDetails(cluster: FlowCluster): FlowSelectionDetails {
+  return {
+    id: cluster.id,
+    kind: 'cluster',
+    label: cluster.label,
+    summary: `${cluster.nodeCount} nodes and ${cluster.edgeCount} internal edges.`,
+    rows: [
+      { label: 'Contained nodes', quantity: cluster.nodeCount },
+      { label: 'Contained edges', quantity: cluster.edgeCount },
+      { label: 'Unmet demand diagnostics', quantity: cluster.unmetDemandCount },
+      { label: 'Unmet demand quantity', quantity: cluster.unmetDemandQuantity },
+      { label: 'Surplus diagnostics', quantity: cluster.surplusCount },
+      { label: 'Surplus quantity', quantity: cluster.surplusQuantity },
+      { label: 'Warnings touching cluster nodes', quantity: cluster.warningCount },
+      { label: 'Missing recipe diagnostics', quantity: cluster.missingRecipeCount },
+    ],
+  };
+}
+
+function nodeDetails(
+  node: FlowNode,
+  connectedEdges: FlowEdge[],
+  diagnosticsById: Map<string, FlowDiagnostic>,
+  result?: SolveResultDto,
+): FlowSelectionDetails {
   if (node.kind === 'item') {
     return {
       id: node.id,
@@ -291,7 +423,7 @@ export function buildFlowSelectionDetails(
       ],
     };
   }
-  const diagnostic = graph.diagnostics.find((entry) => entry.id === node.id);
+  const diagnostic = diagnosticsById.get(node.id);
   return {
     id: node.id,
     kind: node.kind,
@@ -305,6 +437,12 @@ export function buildFlowSelectionDetails(
       ...connectedEdges.map((edge) => ({ label: `Connected ${edge.kind}`, id: edge.id, quantity: edge.quantity })),
     ].filter((row) => row.id !== undefined || row.quantity !== undefined),
   };
+}
+
+function appendEdge(edgesByNode: Map<string, FlowEdge[]>, nodeId: string, edge: FlowEdge) {
+  const edges = edgesByNode.get(nodeId) ?? [];
+  edges.push(edge);
+  edgesByNode.set(nodeId, edges);
 }
 
 function collectComponent(start: string, adjacency: Map<string, Set<string>>, visited: Set<string>): string[] {

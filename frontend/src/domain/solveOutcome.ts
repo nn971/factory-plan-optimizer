@@ -85,11 +85,11 @@ export function graphAvailability({
   currentPackageId?: string | null;
 }): StatusSummary {
   if (!job?.result) return { label: 'Flow graph unavailable', description: 'Run a solve before inspecting result flows.', tone: 'neutral' };
-  if (explorerLoading) return { label: 'Loading recipe data', description: 'Flow graph is waiting for explorer recipe data.', tone: 'info' };
-  if (explorerStale) return { label: 'Recipe data stale', description: 'Refresh explorer data before rendering a graph for this solve result.', tone: 'warning' };
-  if (!explorer) return { label: 'Recipe data not loaded', description: 'Load explorer recipe data to enable flow visualization.', tone: 'info' };
+  if (explorerLoading) return { label: 'Loading recipe data', description: 'Flow graph can render partial result IDs while explorer recipe data loads.', tone: 'info' };
+  if (!explorer) return { label: 'Recipe data not loaded', description: 'Rendering a partial ID-only graph. Load explorer recipe data for full recipe IO topology.', tone: 'info' };
+  if (explorerStale) return { label: 'Recipe data stale', description: 'Rendering uses the available explorer topology, but refresh recipe data to update enrichment for this solve result.', tone: 'warning' };
   if (currentPackageId && explorer.package_id && currentPackageId !== explorer.package_id) {
-    return { label: 'Recipe data mismatch', description: 'Rendering is blocked because explorer data belongs to a different package.', tone: 'warning' };
+    return { label: 'Recipe data mismatch', description: 'Rendering uses the available explorer topology, but explorer data belongs to a different package.', tone: 'warning' };
   }
   return { label: 'Flow graph ready', description: 'Recipe data is available for this result view. Raw diagnostics remain below for exact inspection.', tone: 'success' };
 }

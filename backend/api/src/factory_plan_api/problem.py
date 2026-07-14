@@ -14,8 +14,6 @@ from factory_plan_api.dtos import (
     ExternalInputDto,
     ItemDto,
     MilestoneDto,
-    OptimizedClusteringConfigDto,
-    OptimizedClusteringResultDto,
     ProblemDto,
     SolveResultDto,
     SparseClusteringConfigDto,
@@ -24,9 +22,6 @@ from factory_plan_api.dtos import (
 
 if TYPE_CHECKING:
     from factory_plan_optimizer.optimizer.global_recipe_lp import GlobalRecipeLpResult
-    from factory_plan_optimizer.optimizer.optimized_clustering import (
-        OptimizedClusteringParameters,
-    )
     from factory_plan_optimizer.optimizer.sparse_clustering import (
         SparseClusteringConfig,
     )
@@ -71,7 +66,16 @@ def problem_from_package(
         raw_input_candidates=raw_input_candidates,
         recipe_ids=[recipe.id for recipe in package.recipes],
         milestones=_milestone_dtos(package),
+        sparse_clustering_defaults=sparse_clustering_defaults(),
     )
+
+
+def sparse_clustering_defaults() -> dict[str, object]:
+    from factory_plan_optimizer.optimizer.sparse_clustering import (  # noqa: PLC0415
+        sparse_clustering_defaults as optimizer_defaults,
+    )
+
+    return dict(optimizer_defaults())
 
 
 def infer_raw_input_candidates(
@@ -240,9 +244,6 @@ def result_to_dto(result: GlobalRecipeLpResult) -> SolveResultDto:
         surplus=dict(result.surplus),
         balance_residuals=dict(result.balance_residuals),
         cluster_diagnostics=cluster_diagnostics,
-        optimized_clustering=_optimized_clustering_to_dto(
-            getattr(result, "optimized_clustering", None),
-        ),
         sparse_clustering=_sparse_clustering_to_dto(
             getattr(result, "sparse_clustering", None),
         ),
@@ -259,21 +260,6 @@ def _cluster_diagnostics_to_dto(
     return ClusterDiagnosticsDto.model_validate(diagnostics)
 
 
-def optimized_clustering_parameters_from_dto(
-    config: OptimizedClusteringConfigDto,
-) -> OptimizedClusteringParameters:
-    from factory_plan_optimizer.optimizer.optimized_clustering import (  # noqa: PLC0415
-        OptimizedClusteringParameters,
-        resolve_parameters,
-    )
-
-    dumped = config.model_dump()
-    dumped["splittable_recipe_ids"] = tuple(dumped["splittable_recipe_ids"])
-    parameters = OptimizedClusteringParameters(**dumped)
-    resolve_parameters(parameters)
-    return parameters
-
-
 def sparse_clustering_config_from_dto(
     config: SparseClusteringConfigDto,
 ) -> SparseClusteringConfig:
@@ -281,21 +267,13 @@ def sparse_clustering_config_from_dto(
         SparseClusteringConfig,
     )
 
-    sparse_config = SparseClusteringConfig(**config.model_dump())
+    dumped = config.model_dump(exclude_unset=True)
+    provided = {key: value for key, value in dumped.items() if value is not None}
+    if "max_refinement_passes" in dumped:
+        provided["max_refinement_passes"] = dumped["max_refinement_passes"]
+    sparse_config = SparseClusteringConfig(**provided)
     sparse_config.validate()
     return sparse_config
-
-
-def _optimized_clustering_to_dto(result: object) -> OptimizedClusteringResultDto | None:
-    if not result:
-        return None
-    if not isinstance(result, Mapping):
-        return None
-    sanitized: dict[str, Any] = dict(result)
-    if sanitized.get("status") == "solver_unavailable":
-        sanitized["message"] = "optimized clustering solver is unavailable"
-        sanitized["details"] = ""
-    return OptimizedClusteringResultDto.model_validate(sanitized)
 
 
 def _sparse_clustering_to_dto(result: object) -> SparseClusteringResultDto | None:

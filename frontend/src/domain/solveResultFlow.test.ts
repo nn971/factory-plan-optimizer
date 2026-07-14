@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ExplorerResponseDto, SolveResultDto } from '../api/dtos';
-import { buildActiveFlowGraph, buildDisplayFlowGraph, buildFlowSelectionDetails } from './solveResultFlow';
+import {
+  buildActiveFlowGraph,
+  buildDisplayFlowGraph,
+  buildFlowSelectionDetailIndex,
+  buildFlowSelectionDetails,
+  buildOptimizerOverlay,
+} from './solveResultFlow';
 
 describe('buildActiveFlowGraph', () => {
   it('calculates recipe input and output edges from active rates', () => {
@@ -11,6 +17,31 @@ describe('buildActiveFlowGraph', () => {
       ['edge:input:iron-plate:make-gear', 'item:iron-plate', 'recipe:make-gear', 4],
       ['edge:output:make-gear:gear', 'recipe:make-gear', 'item:gear', 2],
     ]);
+  });
+
+  it('builds partial ID-only graph without explorer recipe metadata', () => {
+    const graph = buildActiveFlowGraph(
+      result({
+        recipe_rates: { 'make-gear': 2 },
+        external_supplies: { 'iron-ore': 3 },
+        unmet_demand: { gear: 1 },
+        surplus: { plate: 4 },
+      }),
+      null,
+    );
+
+    expect(graph.nodes.map((node) => node.id)).toEqual([
+      'diagnostic:external:iron-ore',
+      'diagnostic:surplus:plate',
+      'diagnostic:unmet:gear',
+      'item:gear',
+      'item:iron-ore',
+      'item:plate',
+      'recipe:make-gear',
+    ]);
+    expect(graph.edges.map((edge) => edge.kind)).toEqual(['external-supply', 'surplus', 'unmet-demand']);
+    expect(graph.edges.some((edge) => edge.kind === 'recipe-input' || edge.kind === 'recipe-output')).toBe(false);
+    expect(graph.warnings).toContainEqual(expect.objectContaining({ kind: 'recipe-topology-unavailable' }));
   });
 
   it('creates external supply diagnostics and edges', () => {
@@ -167,7 +198,7 @@ describe('buildActiveFlowGraph', () => {
 
   it('does not cluster small graphs', () => {
     const graph = buildActiveFlowGraph(result({ recipe_rates: { 'make-gear': 1 } }), explorer());
-    const display = buildDisplayFlowGraph(graph, new Set());
+    const display = buildDisplayFlowGraph(graph, new Set(), 'heuristic');
 
     expect(display.clusters).toEqual([]);
     expect(display.nodes.map((node) => node.id)).toEqual(graph.nodes.map((node) => node.id));
@@ -182,7 +213,7 @@ describe('buildActiveFlowGraph', () => {
       }),
       denseExplorer(7),
     );
-    const display = buildDisplayFlowGraph(graph, new Set());
+    const display = buildDisplayFlowGraph(graph, new Set(), 'heuristic');
 
     expect(display.clusters).toHaveLength(1);
     expect(display.clusters[0]).toMatchObject({
@@ -197,10 +228,19 @@ describe('buildActiveFlowGraph', () => {
     expect(display.edges).toEqual([]);
   });
 
+  it('raw mode does not collapse dense graphs', () => {
+    const graph = buildActiveFlowGraph(result({ recipe_rates: denseRates(7), surplus: { item6: 3 } }), denseExplorer(7));
+    const display = buildDisplayFlowGraph(graph, new Set(), 'raw');
+
+    expect(display.clusters).toHaveLength(0);
+    expect(display.nodes.map((node) => node.id)).toEqual(graph.nodes.map((node) => node.id));
+    expect(display.edges.map((edge) => edge.id)).toEqual(graph.edges.map((edge) => edge.id));
+  });
+
   it('expands clusters when requested', () => {
     const graph = buildActiveFlowGraph(result({ recipe_rates: denseRates(7) }), denseExplorer(7));
-    const collapsed = buildDisplayFlowGraph(graph, new Set());
-    const expanded = buildDisplayFlowGraph(graph, new Set([collapsed.clusters[0].id]));
+    const collapsed = buildDisplayFlowGraph(graph, new Set(), 'heuristic');
+    const expanded = buildDisplayFlowGraph(graph, new Set([collapsed.clusters[0].id]), 'heuristic');
 
     expect(expanded.nodes.map((node) => node.id)).toEqual(graph.nodes.map((node) => node.id));
     expect(expanded.edges.map((edge) => edge.source)).toEqual(graph.edges.map((edge) => edge.source));
@@ -208,8 +248,8 @@ describe('buildActiveFlowGraph', () => {
 
   it('returns deterministic cluster ids and ordering across repeated calls', () => {
     const graph = buildActiveFlowGraph(result({ recipe_rates: denseRates(7), surplus: { item7: 1 } }), denseExplorer(7));
-    const first = buildDisplayFlowGraph(graph, new Set());
-    const second = buildDisplayFlowGraph(graph, new Set());
+    const first = buildDisplayFlowGraph(graph, new Set(), 'heuristic');
+    const second = buildDisplayFlowGraph(graph, new Set(), 'heuristic');
 
     expect(second.clusters).toEqual(first.clusters);
     expect(second.nodes.map((node) => node.id)).toEqual(first.nodes.map((node) => node.id));
@@ -237,7 +277,7 @@ describe('buildActiveFlowGraph', () => {
   it('summarizes selected diagnostic and cluster details', () => {
     const solveResult = result({ recipe_rates: denseRates(7), unmet_demand: { item7: 2 }, surplus: { item6: 3 } });
     const graph = buildActiveFlowGraph(solveResult, denseExplorer(7));
-    const clusterId = buildDisplayFlowGraph(graph, new Set()).clusters[0].id;
+    const clusterId = buildDisplayFlowGraph(graph, new Set(), 'heuristic').clusters[0].id;
 
     expect(buildFlowSelectionDetails(graph, 'diagnostic:unmet:item7', solveResult)).toMatchObject({
       id: 'diagnostic:unmet:item7',
@@ -253,6 +293,68 @@ describe('buildActiveFlowGraph', () => {
       ]),
     });
   });
+
+  it('builds selection detail index from provided display clusters', () => {
+    const solveResult = result({ recipe_rates: denseRates(7), unmet_demand: { item7: 2 } });
+    const graph = buildActiveFlowGraph(solveResult, denseExplorer(7));
+    const display = buildDisplayFlowGraph(graph, new Set(), 'heuristic');
+    const index = buildFlowSelectionDetailIndex(graph, solveResult, display.clusters);
+
+    expect(index.detailById.get('recipe:chain-0')).toMatchObject({ kind: 'recipe' });
+    expect(index.detailById.get(display.clusters[0].id)).toMatchObject({
+      kind: 'cluster',
+      rows: expect.arrayContaining([expect.objectContaining({ label: 'Unmet demand quantity', quantity: 2 })]),
+    });
+    expect(buildFlowSelectionDetailIndex(graph, solveResult, []).detailById.has(display.clusters[0].id)).toBe(false);
+  });
+
+  it('builds complete sparse overlay labels for active recipes', () => {
+    const solveResult = result({
+      recipe_rates: { 'make-gear': 2, 'make-copper': 1 },
+      sparse_clustering: sparseAssignments([
+        ['make-gear', 1],
+        ['make-copper', 2],
+      ]),
+    });
+    const graph = buildActiveFlowGraph(solveResult, explorer());
+
+    const overlay = buildOptimizerOverlay(graph, solveResult);
+
+    expect(overlay).toMatchObject({
+      available: true,
+      source: 'sparse',
+      label: 'Sparse clustering',
+    });
+    expect(overlay.available ? [...overlay.recipeToCluster.entries()] : []).toEqual([
+      ['make-copper', '2'],
+      ['make-gear', '1'],
+    ]);
+  });
+
+  it('warns instead of rendering partial sparse overlay when assignments are capped or missing active recipes', () => {
+    const truncatedResult = result({
+      recipe_rates: { 'make-gear': 2 },
+      sparse_clustering: sparseAssignments([['make-gear', 1]], true),
+    });
+    const truncatedGraph = buildActiveFlowGraph(truncatedResult, explorer());
+
+    expect(buildOptimizerOverlay(truncatedGraph, truncatedResult)).toEqual({
+      available: false,
+      reason: 'Sparse cluster assignments were capped, so cluster overlay is unavailable.',
+    });
+
+    const missingResult = result({
+      recipe_rates: { 'make-gear': 2, 'make-copper': 1 },
+      sparse_clustering: sparseAssignments([['make-gear', 1]]),
+    });
+    const missingGraph = buildActiveFlowGraph(missingResult, explorer());
+
+    expect(buildOptimizerOverlay(missingGraph, missingResult)).toEqual({
+      available: false,
+      reason: 'Sparse cluster assignments do not cover every active recipe node.',
+    });
+  });
+
 });
 
 function result(patch: Partial<SolveResultDto> = {}): SolveResultDto {
@@ -324,5 +426,30 @@ function denseExplorer(count: number): ExplorerResponseDto {
     recipes: Array.from({ length: count }, (_, index) =>
       recipe(`chain-${index}`, [{ item_id: `item${index}`, amount: 1 }], [{ item_id: `item${index + 1}`, amount: 1 }]),
     ),
+  };
+}
+
+function sparseAssignments(assignments: Array<[string, string | number]>, truncated = false): SolveResultDto['sparse_clustering'] {
+  return {
+    status: 'success',
+    message: 'sparse clustering completed',
+    mode: 'fast',
+    graph_type: 'recipe-to-recipe',
+    optimization_effect: 'none',
+    engine: 'port-aware',
+    cluster_count: 2,
+    target_cluster_count: 2,
+    effective_config: {},
+    warnings: [],
+    quality: {},
+    boundary_port_type_count: 0,
+    net_port_count: 0,
+    external_boundary_port_type_count: 0,
+    graph_statistics: {},
+    recipe_assignments: {
+      items: assignments.map(([recipe_id, cluster_id]) => ({ recipe_id, cluster_id })),
+      total_count: assignments.length,
+      truncated,
+    },
   };
 }

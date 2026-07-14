@@ -30,6 +30,11 @@
       "propertyNames": {"$ref": "#/$defs/id"},
       "additionalProperties": {"$ref": "#/$defs/externalSupply"}
     },
+    "raw_input_suggestions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/id"},
+      "uniqueItems": true
+    },
     "milestones": {
       "type": "array",
       "items": {"$ref": "#/$defs/milestoneRecipeSet"},

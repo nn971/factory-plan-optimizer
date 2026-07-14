@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ProblemDto } from '../api/dtos';
 import type { EditableProblem } from './problemState';
-import { DEFAULT_CLUSTERING_GUARDRAILS, EditableProblemValidationError, createEditableProblem, toSolveRequest, toValidatedSolveRequest, validateEditableProblem } from './problemState';
+import { DEFAULT_CLUSTERING_GUARDRAILS, EditableProblemValidationError, createEditableProblem, createExternalInputRow, toSolveRequest, toValidatedSolveRequest, validateEditableProblem } from './problemState';
 
 describe('createEditableProblem', () => {
   it('falls back to external inputs when raw input candidates are absent', () => {
@@ -68,6 +68,27 @@ describe('createEditableProblem', () => {
     expect(editable.sparseClustering.maxRuntimeSeconds).toBe('7');
     expect(editable.sparseClustering.maxRefinementPasses).toBe('');
     expect(editable.clusteringGuardrails.sparse.maxRuntimeSecondsExclusiveMin).toBe(0);
+  });
+
+  it('creates raw input candidates with shared defaults and ignores candidate values', () => {
+    const editable = createEditableProblem({
+      package_id: 'p', scenario_id: 's', scenario_label: 'S', items: [{ id: 'water', kind: 'fluid' }], demands: {}, target_demands: [], rate_units: 'items/s', default_solve_mode: 'hard_demand', external_inputs: [],
+      raw_input_candidates: [{ item_id: 'water', kind: 'fluid', enabled: false, cost: 99, capacity: 2, source: 'inferred_fluid', default_approved: true }],
+      recipe_ids: [], milestones: [], item_metadata: {}, recipe_metadata: {},
+    });
+    expect(editable.externalInputs).toEqual([{ item_id: 'water', kind: 'fluid', enabled: true, cost: '0', capacity: '1000000', source: 'inferred_fluid', defaultApproved: true }]);
+  });
+
+  it('re-adding through the factory uses fresh defaults', () => {
+    expect(createExternalInputRow({ item_id: 'iron-ore', kind: 'item' })).toMatchObject({ enabled: true, cost: '0', capacity: '1000000' });
+  });
+
+  it('remove and re-add via factory does not restore prior edited values', () => {
+    const editedRows = [{ ...createExternalInputRow({ item_id: 'water', kind: 'fluid' }), cost: '42', capacity: '7', enabled: false }];
+    const removedRows = editedRows.filter((row) => row.item_id !== 'water');
+    const readdedRows = [...removedRows, createExternalInputRow({ item_id: 'water', kind: 'fluid' })];
+
+    expect(readdedRows).toEqual([{ item_id: 'water', kind: 'fluid', enabled: true, cost: '0', capacity: '1000000', source: undefined, defaultApproved: false }]);
   });
 });
 
@@ -138,6 +159,15 @@ describe('toSolveRequest', () => {
 
     expect(request.sparse_clustering?.max_refinement_passes).toBeNull();
   });
+
+  it('serializes disabled raw input rows as disabled', () => {
+    const request = toValidatedSolveRequest({
+      ...editableProblem(),
+      externalInputs: [{ item_id: 'iron-ore', kind: 'item', enabled: false, cost: 'bad', capacity: '', defaultApproved: false }],
+    });
+
+    expect(request.external_inputs).toEqual([{ item_id: 'iron-ore', kind: 'item', enabled: false, cost: 0, capacity: null, source: undefined, default_approved: false }]);
+  });
 });
 
 describe('validateEditableProblem', () => {
@@ -154,6 +184,25 @@ describe('validateEditableProblem', () => {
       'externalInputs.iron-ore.cost',
       'externalInputs.iron-ore.capacity',
     ]);
+  });
+
+  it('ignores blank or invalid disabled external input numbers', () => {
+    const errors = validateEditableProblem({
+      ...editableProblem(),
+      externalInputs: [
+        { item_id: 'iron-ore', kind: 'item', enabled: false, cost: 'bad', capacity: 'bad', defaultApproved: false },
+        { item_id: 'copper-ore', kind: 'item', enabled: false, cost: '', capacity: '', defaultApproved: false },
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('requires enabled external inputs to have finite nonnegative cost and capacity', () => {
+    const errors = validateEditableProblem({
+      ...editableProblem(),
+      externalInputs: [{ item_id: 'iron-ore', kind: 'item', enabled: true, cost: '', capacity: '', defaultApproved: false }],
+    });
+    expect(errors.map((error) => error.field)).toEqual(['externalInputs.iron-ore.cost', 'externalInputs.iron-ore.capacity']);
   });
 
   it('applies sparse clustering integer, guardrail, and relationship checks', () => {

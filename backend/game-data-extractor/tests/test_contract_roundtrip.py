@@ -21,6 +21,26 @@ from game_data_extractor.data_contracts import (
 MAXIMUM_TEMPERATURE = 15.0
 
 
+def _minimal_factory_data() -> dict[str, object]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "items": [{"id": "iron-ore"}, {"id": "iron-plate", "kind": "item"}],
+        "recipes": [
+            {
+                "id": "smelt-iron",
+                "coefficients": {"iron-ore": -1.0, "iron-plate": 1.0},
+                "energy_required": 3.2,
+                "ingredients": [{"type": "unknown", "name": "iron-ore", "amount": 1.0}],
+                "results": [{"type": "item", "name": "iron-plate", "amount": 1.0}],
+                "production_cost": 0.5,
+            },
+        ],
+        "final_demands": {"iron-plate": 1.0},
+        "external_supplies": {"iron-ore": {"cost": 1.0, "capacity": None}},
+        "unmet_demand_penalty_rate": 1000.0,
+    }
+
+
 def test_factory_data_package_from_json_to_json_roundtrip() -> None:
     text = json.dumps(
         {
@@ -52,6 +72,49 @@ def test_factory_data_package_from_json_to_json_roundtrip() -> None:
     assert package.items[0].unlock_condition.type == "unknown"
     assert package.recipes[0].category == "unknown"
     assert package.recipes[0].unlock_condition.type == "unknown"
+
+
+def test_raw_input_suggestions_absent_parses_as_none_and_omits_serialization() -> None:
+    package = FactoryDataPackage.from_json(json.dumps(_minimal_factory_data()))
+
+    assert package.raw_input_suggestions is None
+    assert "raw_input_suggestions" not in package.to_json_value()
+
+
+def test_raw_input_suggestions_empty_survives_roundtrip() -> None:
+    data = _minimal_factory_data()
+    data["raw_input_suggestions"] = []
+
+    package = FactoryDataPackage.from_json(json.dumps(data))
+    reparsed = FactoryDataPackage.from_json(package.to_json())
+
+    assert package.raw_input_suggestions == ()
+    assert package.to_json_value()["raw_input_suggestions"] == []
+    assert reparsed.raw_input_suggestions == ()
+
+
+def test_raw_input_suggestions_roundtrip_preserves_present_ids() -> None:
+    data = _minimal_factory_data()
+    data["raw_input_suggestions"] = ["iron-ore"]
+
+    package = FactoryDataPackage.from_json(json.dumps(data))
+
+    assert package.raw_input_suggestions == ("iron-ore",)
+    assert FactoryDataPackage.from_json(package.to_json()).raw_input_suggestions == (
+        "iron-ore",
+    )
+
+
+@pytest.mark.parametrize(
+    "suggestions",
+    [["missing"], ["iron-ore", "iron-ore"], ["bad id"], [1]],
+)
+def test_raw_input_suggestions_reject_invalid_values(suggestions: object) -> None:
+    data = _minimal_factory_data()
+    data["raw_input_suggestions"] = suggestions
+
+    with pytest.raises(FactoryDataPackageParseError):
+        FactoryDataPackage.from_json(json.dumps(data))
 
 
 def test_factory_data_package_accepts_explicit_metadata_unlock_forms() -> None:
@@ -202,6 +265,62 @@ def test_planning_adapter_derives_category_and_unlocks() -> None:
     assert package.recipes[1].source_prototype_name == "free-boiler"
     assert package.recipes[1].production_cost == 0.0
     assert package.recipes[2].unlock_condition.type == "start-unlocked"
+
+
+def test_planning_adapter_sets_raw_input_suggestions_from_accepted_inputs() -> None:
+    dataset = OptimizerRecipeDataset(
+        items=(ItemPrototype("iron-ore", "item"), ItemPrototype("iron-plate", "item")),
+        recipes=(
+            RecipePrototype(
+                "smelt-iron",
+                "smelting",
+                1.0,
+                (
+                    RecipeCoefficient("iron-ore", -1.0, "input"),
+                    RecipeCoefficient("iron-plate", 1.0, "output"),
+                ),
+                enabled=True,
+            ),
+        ),
+    )
+
+    package = dataset_to_factory_data_package(
+        dataset,
+        {"iron-plate": 1.0},
+        ("iron-ore",),
+    )
+
+    assert package.raw_input_suggestions == ("iron-ore",)
+
+
+def test_planning_adapter_explicit_empty_accepted_inputs_disables_fallback() -> None:
+    dataset = OptimizerRecipeDataset(
+        items=(
+            ItemPrototype("copper-ore", "item"),
+            ItemPrototype("copper-plate", "item"),
+        ),
+        recipes=(
+            RecipePrototype(
+                "smelt-copper",
+                "smelting",
+                1.0,
+                (
+                    RecipeCoefficient("copper-ore", -1.0, "input"),
+                    RecipeCoefficient("copper-plate", 1.0, "output"),
+                ),
+                enabled=True,
+            ),
+        ),
+    )
+
+    package = dataset_to_factory_data_package(
+        dataset,
+        {"copper-plate": 1.0},
+        (),
+    )
+
+    assert package.external_supplies == {}
+    assert package.raw_input_suggestions == ()
 
 
 def test_planning_adapter_derives_science_milestone_recipe_sets() -> None:

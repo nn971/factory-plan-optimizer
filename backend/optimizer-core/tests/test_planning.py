@@ -25,7 +25,9 @@ def test_conversion_aggregates_coefficients_and_input_policy() -> None:
             ItemPrototype("water", "fluid"),
             ItemPrototype("plate", "item"),
             ItemPrototype("kerogen", "item"),
+            ItemPrototype("phosphate-rock", "item"),
             ItemPrototype("raw-coal", "item"),
+            ItemPrototype("sulfur", "item"),
         ],
         recipes=[
             RecipePrototype(
@@ -49,7 +51,9 @@ def test_conversion_aggregates_coefficients_and_input_policy() -> None:
     assert accepted_early_pyanodon_inputs(dataset) == (
         "iron-ore",
         "kerogen",
+        "phosphate-rock",
         "raw-coal",
+        "sulfur",
         "water",
     )
     package = dataset_to_factory_data_package(dataset, {"plate": 1.0})
@@ -59,7 +63,9 @@ def test_conversion_aggregates_coefficients_and_input_policy() -> None:
         "water",
         "plate",
         "kerogen",
+        "phosphate-rock",
         "raw-coal",
+        "sulfur",
     }
     assert package.recipes[0].coefficients == {
         "iron-ore": -5.0,
@@ -70,7 +76,9 @@ def test_conversion_aggregates_coefficients_and_input_policy() -> None:
         "iron-ore",
         "water",
         "kerogen",
+        "phosphate-rock",
         "raw-coal",
+        "sulfur",
     }
     assert package.final_demands == {"plate": 1.0}
 

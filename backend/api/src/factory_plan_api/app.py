@@ -28,6 +28,7 @@ from factory_plan_api.jobs import SolveJobStore, SolveJobStoreFullError
 from factory_plan_api.problem import (
     DEFAULT_PACKAGE_ID,
     DEFAULT_SCENARIO_ID,
+    LEGACY_DEFAULT_PACKAGE_IDS,
     package_with_edits,
     problem_from_package,
     result_to_dto,
@@ -163,7 +164,11 @@ def _package_from_request(request: SolveRequestDto) -> FactoryDataPackage:
 
 
 def _base_package_from_request(request: SolveRequestDto) -> FactoryDataPackage:
-    if request.package_id is None or request.package_id == DEFAULT_PACKAGE_ID:
+    if (
+        request.package_id is None
+        or request.package_id == DEFAULT_PACKAGE_ID
+        or request.package_id in LEGACY_DEFAULT_PACKAGE_IDS
+    ):
         return load_default_factory_data()
     package = uploaded_packages.get(request.package_id)
     if package is None:

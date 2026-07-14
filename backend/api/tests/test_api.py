@@ -28,8 +28,9 @@ HTTP_NOT_FOUND = 404
 HTTP_PAYLOAD_TOO_LARGE = 413
 HTTP_TOO_MANY_REQUESTS = 429
 HTTP_UNPROCESSABLE_ENTITY = 422
-DEFAULT_PACKAGE_ID = "default-first-3-science-v1"
-DEFAULT_SCENARIO_ID = "first-3-science-v1"
+DEFAULT_PACKAGE_ID = "default-scenario"
+DEFAULT_SCENARIO_ID = "default-scenario"
+LEGACY_DEFAULT_PACKAGE_ID = "default-first-3-science-v1"
 DEFAULT_EXTERNAL_INPUT_CAPACITY = 100000.0
 CURATED_SCIENCE_TARGETS = [
     "automation-science-pack",
@@ -671,27 +672,54 @@ def test_clustering_result_dtos_require_reason_code_for_non_success() -> None:
         SparseClusteringResultDto.model_validate(sparse_payload)
 
 
-def test_default_raw_input_candidates_have_sources() -> None:
+def test_default_raw_input_candidates_have_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    app_module.clear_current_package()
+    toy_path = _repository_root() / "examples" / "data" / "toy_iron.factory-data.json"
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(toy_path))
+    package = load_default_factory_data()
+    raw_input_suggestions = package.raw_input_suggestions
+    assert raw_input_suggestions is not None
     body = TestClient(app).get("/api/problem/default").json()
-    candidates = {
-        candidate["item_id"]: candidate for candidate in body["raw_input_candidates"]
-    }
+    candidates = body["raw_input_candidates"]
 
-    assert "coal" not in candidates
-    assert {"iron-ore", "copper-ore", "stone"} <= set(candidates)
-    for item_id in ["iron-ore", "copper-ore", "stone"]:
-        candidate = candidates[item_id]
+    assert [candidate["item_id"] for candidate in candidates] == list(
+        raw_input_suggestions,
+    )
+    candidates_by_id = {candidate["item_id"]: candidate for candidate in candidates}
+    for item_id in raw_input_suggestions:
+        candidate = candidates_by_id[item_id]
+        supply = package.external_supplies.get(item_id)
+        if supply is None:
+            assert candidate["source"] is None
+            assert candidate["enabled"] is False
+            assert candidate["default_approved"] is False
+            assert candidate["cost"] == 0.0
+            continue
         assert candidate["source"] == "default_input"
         assert candidate["enabled"] is True
         assert candidate["default_approved"] is True
-        assert candidate["capacity"] > 0.0
-    if "water" in candidates and candidates["water"]["source"] != "default_input":
-        assert candidates["water"]["cost"] == 0.0
+        assert candidate["cost"] == supply.cost
+    app_module.clear_current_package()
 
 
-def test_default_raw_input_candidates_have_default_caps() -> None:
-    body = TestClient(app).get("/api/problem/default").json()
+def test_uploaded_problem_absent_suggestions_fallback_candidates_have_default_caps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    package = _water_package()
+    package["items"] = [
+        {"id": "water", "kind": "fluid"},
+        {"id": "sand", "kind": "item"},
+    ]
 
+    response = TestClient(app).post("/api/problem/package", json=package)
+
+    assert response.status_code == HTTP_OK
+    body = response.json()["problem"]
     assert body["raw_input_candidates"]
     implicit_candidates = [
         candidate
@@ -701,9 +729,6 @@ def test_default_raw_input_candidates_have_default_caps() -> None:
     assert all(
         candidate["capacity"] == DEFAULT_EXTERNAL_INPUT_CAPACITY
         for candidate in implicit_candidates
-    )
-    assert any(
-        candidate["kind"] == "fluid" for candidate in body["raw_input_candidates"]
     )
 
 
@@ -771,6 +796,81 @@ def test_uploaded_problem_infers_unproduced_raw_candidates(
         "source": "inferred_unproduced",
         "default_approved": False,
     }
+
+
+def test_uploaded_problem_uses_explicit_raw_input_suggestions_without_extras(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    package = _water_package()
+    package["items"] = [
+        {"id": "water", "kind": "fluid"},
+        {"id": "sand", "kind": "item"},
+        {"id": "stone", "kind": "item"},
+    ]
+    package["external_supplies"] = {"stone": {"cost": 3.0, "capacity": 7.0}}
+    package["raw_input_suggestions"] = ["stone", "sand"]
+
+    response = TestClient(app).post("/api/problem/package", json=package)
+
+    assert response.status_code == HTTP_OK
+    candidates = response.json()["problem"]["raw_input_candidates"]
+    assert [candidate["item_id"] for candidate in candidates] == ["stone", "sand"]
+    assert candidates[0] == {
+        "item_id": "stone",
+        "kind": "item",
+        "enabled": True,
+        "cost": 3.0,
+        "capacity": 7.0,
+        "source": "default_input",
+        "default_approved": True,
+    }
+    assert candidates[1] == {
+        "item_id": "sand",
+        "kind": "item",
+        "enabled": False,
+        "cost": 0.0,
+        "capacity": DEFAULT_EXTERNAL_INPUT_CAPACITY,
+        "source": None,
+        "default_approved": False,
+    }
+
+
+def test_uploaded_problem_empty_raw_input_suggestions_disables_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    package = _water_package()
+    package["items"] = [
+        {"id": "water", "kind": "fluid"},
+        {"id": "sand", "kind": "item"},
+    ]
+    package["raw_input_suggestions"] = []
+
+    response = TestClient(app).post("/api/problem/package", json=package)
+
+    assert response.status_code == HTTP_OK
+    assert response.json()["problem"]["raw_input_candidates"] == []
+
+
+@pytest.mark.parametrize(
+    "suggestions",
+    [["missing"], ["water", "water"], ["bad id"], [1]],
+)
+def test_uploaded_problem_rejects_invalid_raw_input_suggestions(
+    monkeypatch: pytest.MonkeyPatch,
+    suggestions: object,
+) -> None:
+    app_module = import_module("factory_plan_api.app")
+    monkeypatch.setattr(app_module, "uploaded_packages", {})
+    package = _water_package()
+    package["raw_input_suggestions"] = suggestions
+
+    response = TestClient(app).post("/api/problem/package", json=package)
+
+    assert response.status_code == HTTP_UNPROCESSABLE_ENTITY
 
 
 def test_uploaded_problem_excludes_coal_when_raw_coal_exists(
@@ -855,6 +955,7 @@ def test_solve_selected_milestone_filters_solver_recipes(
     app_module = import_module("factory_plan_api.app")
     monkeypatch.setattr(app_module, "uploaded_packages", {})
     captured_recipe_ids: list[str] = []
+    captured_raw_input_suggestions: list[tuple[str, ...] | None] = []
 
     @dataclass
     class SolverResult:
@@ -871,13 +972,16 @@ def test_solve_selected_milestone_filters_solver_recipes(
 
     def capture_solver(package: FactoryDataPackage, **_kwargs: object) -> SolverResult:
         captured_recipe_ids.extend(recipe.id for recipe in package.recipes)
+        captured_raw_input_suggestions.append(package.raw_input_suggestions)
         return SolverResult()
 
     monkeypatch.setattr(app_module, "solve_global_recipe_lp", capture_solver)
     client = TestClient(app)
+    package = _milestone_filter_package()
+    package["raw_input_suggestions"] = ["ore"]
     uploaded = client.post(
         "/api/problem/package",
-        json=_milestone_filter_package(),
+        json=package,
     ).json()
 
     queued = client.post(
@@ -894,6 +998,7 @@ def test_solve_selected_milestone_filters_solver_recipes(
     body = _wait_for_job(client, queued.json()["job_id"])
     assert body["status"] == "succeeded"
     assert captured_recipe_ids == ["make-gear", "make-science-a"]
+    assert captured_raw_input_suggestions == [("ore",)]
 
 
 def test_solve_mode_defaults_to_hard_demand_for_uploaded_package(
@@ -1020,6 +1125,28 @@ def test_solve_accepts_default_package_id(monkeypatch: pytest.MonkeyPatch) -> No
         "/api/solve",
         json={
             "package_id": problem["package_id"],
+            "demands": {"automation-science-pack": 1.0},
+            "external_inputs": problem["external_inputs"],
+        },
+    )
+
+    assert queued.status_code == HTTP_OK
+    body = _wait_for_job(client, queued.json()["job_id"])
+    assert body["status"] == "succeeded"
+    assert "craft-automation-science-pack" in body["result"]["recipe_rates"]
+
+
+def test_solve_accepts_legacy_default_package_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(DEFAULT_DATA_PATH_ENV, str(_curated_default_path()))
+    client = TestClient(app)
+    problem = client.get("/api/problem/default").json()
+
+    queued = client.post(
+        "/api/solve",
+        json={
+            "package_id": LEGACY_DEFAULT_PACKAGE_ID,
             "demands": {"automation-science-pack": 1.0},
             "external_inputs": problem["external_inputs"],
         },

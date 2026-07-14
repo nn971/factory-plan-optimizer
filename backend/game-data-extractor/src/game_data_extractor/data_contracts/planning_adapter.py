@@ -31,7 +31,15 @@ if TYPE_CHECKING:
 TOLERANCE = 1e-7
 UNMET_DEMAND_PENALTY_RATE = 1e9
 EXACT_ACCEPTED_INPUTS = frozenset(
-    {"water", "stone", "native-flora", "kerogen", "raw-coal"},
+    {
+        "kerogen",
+        "native-flora",
+        "phosphate-rock",
+        "raw-coal",
+        "stone",
+        "sulfur",
+        "water",
+    },
 )
 SCIENCE_MILESTONE_ORDER = (
     "automation-science-pack",
@@ -74,7 +82,11 @@ def dataset_to_factory_data_package(
     demands_per_second: Mapping[str, float],
     accepted_inputs: Sequence[str] | None = None,
 ) -> FactoryDataPackage:
-    accepted = tuple(accepted_inputs or accepted_early_pyanodon_inputs(dataset))
+    accepted = _dedupe_preserving_order(
+        accepted_early_pyanodon_inputs(dataset)
+        if accepted_inputs is None
+        else accepted_inputs,
+    )
     technology_by_recipe = _recipe_unlocks_by_technology(dataset)
     items = _canonical_items(dataset)
     item_kinds: dict[str, RecipeTermType] = {
@@ -91,9 +103,14 @@ def dataset_to_factory_data_package(
         recipes=recipes,
         final_demands=dict(demands_per_second),
         external_supplies={name: ExternalSupply(cost=1.0) for name in accepted},
+        raw_input_suggestions=accepted,
         unmet_demand_penalty_rate=UNMET_DEMAND_PENALTY_RATE,
         milestones=_science_milestones(dataset, recipes),
     )
+
+
+def _dedupe_preserving_order(item_ids: Sequence[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(item_ids))
 
 
 def _canonical_items(dataset: OptimizerRecipeDataset) -> tuple[ItemPrototype, ...]:

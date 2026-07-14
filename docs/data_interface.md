@@ -37,12 +37,14 @@ consume only this package shape.
   "external_supplies": {
     "iron-ore": {"cost": 1.0, "capacity": null}
   },
+  "raw_input_suggestions": ["iron-ore"],
   "unmet_demand_penalty_rate": 1000000.0
 }
 ```
 
 Required top-level fields are `schema_version`, `items`, `recipes`,
 `final_demands`, `external_supplies`, and `unmet_demand_penalty_rate`.
+`raw_input_suggestions` is optional.
 
 The first canonical example package is
 `examples/data/toy_iron.factory-data.json`.
@@ -113,6 +115,15 @@ until future energy constraints or explicit costs are added.
   contributes to `raw_cost`.
 - `external_supplies[item_id].capacity` is optional. `null` or omitted means no
   finite upper bound. A numeric value is an upper bound on supply rate.
+- `raw_input_suggestions` is an optional curated list of item/fluid IDs that the
+  API exposes as UI startup raw-input candidates. Each ID must be a unique known
+  item ID; the field carries no costs, capacities, or enabled state. If a
+  suggested ID also appears in `external_supplies`, the API preserves that supply
+  cost/capacity metadata. If it does not, the suggestion is emitted with neutral
+  metadata and the UI applies its normal row defaults. Omitting the field (or a
+  manual constructor value of `None`) means legacy API fallback inference may run;
+  an explicit empty array means the scenario intentionally has no startup raw
+  input suggestions and fallback inference must not run.
 - `unmet_demand_penalty_rate` is the per-unit penalty for unmet final demand in
   the initial global LP's `soft_diagnostics` solve mode. In default
   `hard_demand` mode, unmet demand is fixed to `0` so infeasible targets are

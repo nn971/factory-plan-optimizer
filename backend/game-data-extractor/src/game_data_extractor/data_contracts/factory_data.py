@@ -162,6 +162,7 @@ class FactoryDataPackage:
     final_demands: Mapping[str, float]
     external_supplies: Mapping[str, ExternalSupply]
     unmet_demand_penalty_rate: float
+    raw_input_suggestions: Sequence[str] | None = None
     milestones: Sequence[MilestoneRecipeSet] = ()
 
     def __post_init__(self) -> None:
@@ -178,6 +179,12 @@ class FactoryDataPackage:
             "external_supplies",
             MappingProxyType(dict(self.external_supplies)),
         )
+        if self.raw_input_suggestions is not None:
+            object.__setattr__(
+                self,
+                "raw_input_suggestions",
+                tuple(self.raw_input_suggestions),
+            )
         object.__setattr__(self, "milestones", tuple(self.milestones))
 
     @classmethod
@@ -187,7 +194,7 @@ class FactoryDataPackage:
 
     def to_json_value(self) -> dict[str, JsonValue]:
         """Return a JSON-compatible representation."""
-        return {
+        value: dict[str, JsonValue] = {
             "external_supplies": {
                 item_id: supply.to_json_value()
                 for item_id, supply in self.external_supplies.items()
@@ -199,6 +206,9 @@ class FactoryDataPackage:
             "schema_version": self.schema_version,
             "unmet_demand_penalty_rate": self.unmet_demand_penalty_rate,
         }
+        if self.raw_input_suggestions is not None:
+            value["raw_input_suggestions"] = list(self.raw_input_suggestions)
+        return value
 
     def to_json(self) -> str:
         """Serialize the package as deterministic pretty-printed JSON."""
@@ -213,6 +223,7 @@ _PACKAGE_KEYS = frozenset(
         "recipes",
         "final_demands",
         "external_supplies",
+        "raw_input_suggestions",
         "unmet_demand_penalty_rate",
     },
 )
@@ -285,6 +296,7 @@ def load_factory_data_package(text: str) -> FactoryDataPackage:
         ),
         external_supplies=_external_supplies(mapping, set(item_kinds)),
         unmet_demand_penalty_rate=unmet_demand_penalty_rate,
+        raw_input_suggestions=_raw_input_suggestions(mapping, set(item_kinds)),
         milestones=_milestones(mapping),
     )
 
@@ -521,6 +533,29 @@ def _external_supplies(
             capacity=capacity,
         )
     return result
+
+
+def _raw_input_suggestions(
+    mapping: JsonObject,
+    item_ids: set[str],
+) -> tuple[str, ...] | None:
+    if "raw_input_suggestions" not in mapping:
+        return None
+    values = mapping["raw_input_suggestions"]
+    if not isinstance(values, list):
+        _raise_parse_error("raw_input_suggestions", "expected JSON array")
+    seen: set[str] = set()
+    result: list[str] = []
+    for index, value in enumerate(values):
+        context = f"raw_input_suggestions[{index}]"
+        if not isinstance(value, str):
+            _raise_parse_error(context, "expected string")
+        _validate_known_item_id(value, context, item_ids)
+        if value in seen:
+            _raise_parse_error("raw_input_suggestions", f"duplicate item id {value!r}")
+        seen.add(value)
+        result.append(value)
+    return tuple(result)
 
 
 def _milestones(mapping: JsonObject) -> tuple[MilestoneRecipeSet, ...]:

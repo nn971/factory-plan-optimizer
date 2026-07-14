@@ -60,6 +60,29 @@ export type EditableSparseClustering = {
   portEpsilon: string;
 };
 
+export const DEFAULT_RAW_INPUT_ENABLED = true;
+export const DEFAULT_RAW_INPUT_COST = '0';
+export const DEFAULT_RAW_INPUT_CAPACITY = '1000000';
+
+export type ExternalInputRowIdentity = {
+  item_id: string;
+  kind?: ExternalInputDto['kind'];
+  source?: ExternalInputDto['source'];
+  default_approved?: boolean;
+};
+
+export function createExternalInputRow(identity: ExternalInputRowIdentity): EditableExternalInput {
+  return {
+    item_id: identity.item_id,
+    kind: identity.kind ?? 'unknown',
+    enabled: DEFAULT_RAW_INPUT_ENABLED,
+    cost: DEFAULT_RAW_INPUT_COST,
+    capacity: DEFAULT_RAW_INPUT_CAPACITY,
+    source: identity.source,
+    defaultApproved: identity.default_approved ?? false,
+  };
+}
+
 export const DEFAULT_SPARSE_CLUSTERING: EditableSparseClustering = {
   enabled: false,
   mode: 'fast',
@@ -88,23 +111,23 @@ export function createEditableProblem(problem: ProblemDto): EditableProblem {
   const targetDemandIds = problem.target_demands ?? [];
   const rawInputCandidates = problem.raw_input_candidates ?? [];
   const externalInputs = rawInputCandidates.length > 0
-    ? rawInputCandidates
-    : problem.external_inputs ?? [];
+    ? rawInputCandidates.map((input) => createExternalInputRow(input))
+    : (problem.external_inputs ?? []).map((input) => ({
+        item_id: input.item_id,
+        kind: input.kind ?? 'unknown',
+        enabled: input.enabled,
+        cost: String(input.cost),
+        capacity: input.capacity == null ? '' : String(input.capacity),
+        source: input.source,
+        defaultApproved: input.default_approved ?? false,
+      }));
   return {
     solveMode: problem.default_solve_mode,
     displayRateUnits: normalizeDisplayRateUnits(problem.rate_units),
     demands: Object.fromEntries(
       targetDemandIds.map((itemId) => [itemId, '']),
     ),
-    externalInputs: externalInputs.map((input) => ({
-      item_id: input.item_id,
-      kind: input.kind ?? 'unknown',
-      enabled: input.enabled,
-      cost: String(input.cost),
-      capacity: input.capacity == null ? '' : String(input.capacity),
-      source: input.source,
-      defaultApproved: input.default_approved ?? false,
-    })),
+    externalInputs,
     sparseClustering: sparseClusteringDefaults(problem.sparse_clustering_defaults),
     clusteringGuardrails: clusteringGuardrails(problem),
   };
@@ -215,8 +238,9 @@ export function validateEditableProblem(editable: EditableProblem): ValidationEr
     if (!isOptionalNonnegativeNumber(value)) errors.push(error(`demands.${itemId}`, 'Target rate must be a nonnegative number.'));
   }
   for (const input of editable.externalInputs) {
-    if (!isOptionalNonnegativeNumber(input.cost)) errors.push(error(`externalInputs.${input.item_id}.cost`, 'Raw input cost must be a nonnegative number.'));
-    if (!isOptionalNonnegativeNumber(input.capacity)) errors.push(error(`externalInputs.${input.item_id}.capacity`, 'Raw input capacity must be blank or a nonnegative number.'));
+    if (!input.enabled) continue;
+    if (!isValidProvidedCapacity(input.cost)) errors.push(error(`externalInputs.${input.item_id}.cost`, 'Raw input cost must be a finite nonnegative number.'));
+    if (!isValidProvidedCapacity(input.capacity)) errors.push(error(`externalInputs.${input.item_id}.capacity`, 'Raw input capacity must be a finite nonnegative number.'));
   }
 
   if (editable.sparseClustering.enabled) {

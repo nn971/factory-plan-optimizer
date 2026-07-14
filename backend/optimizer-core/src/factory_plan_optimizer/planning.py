@@ -53,7 +53,10 @@ def solve_planning_lp(
     tolerance: float = TOLERANCE,
 ) -> PlanningResult:
     accepted = list(accepted_early_pyanodon_inputs(dataset))
-    policy = "early_pyanodon_raw_ores_water_stone_native_flora_kerogen_raw_coal"
+    policy = (
+        "early_pyanodon_raw_ores_water_stone_native_flora_kerogen_"
+        "sulfur_phosphate_raw_coal"
+    )
     package = dataset_to_factory_data_package(dataset, demands_per_second, accepted)
     result = solve_global_recipe_lp(package, solve_mode="soft_diagnostics")
     steps: list[RelaxationStep] = []

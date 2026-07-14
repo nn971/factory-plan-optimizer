@@ -470,7 +470,220 @@ select {
   padding: 0.8rem 0;
 }
 
-.input-card small {
+.raw-input-row {
+  grid-template-columns: minmax(14rem, 1fr) auto minmax(8rem, 0.42fr) minmax(8rem, 0.42fr);
+  align-items: center;
+  margin-top: 0.25rem;
+  border-top: 1px solid rgba(90, 59, 30, 0.1);
+}
+
+.raw-input-row:hover {
+  background: linear-gradient(90deg, rgba(255, 248, 235, 0.55), transparent 70%);
+}
+
+.raw-input-row:focus {
+  outline: 2px solid #c46b22;
+  outline-offset: 3px;
+  border-radius: 14px;
+}
+
+.raw-input-row label:not(.check) {
+  min-width: 0;
+}
+
+.raw-input-search {
+  position: relative;
+  margin: 0.9rem 0 0.65rem;
+}
+
+.raw-input-search-label {
+  display: grid;
+  gap: 0.35rem;
+  color: #5a3b1e;
+  font-weight: 800;
+}
+
+.raw-input-search input {
+  border-radius: 16px;
+  padding: 0.72rem 0.85rem;
+  border-color: rgba(90, 59, 30, 0.22);
+  background:
+    linear-gradient(90deg, rgba(255, 253, 248, 0.94), rgba(255, 248, 235, 0.84)),
+    #fffdf8;
+}
+
+.raw-input-search input:focus {
+  outline: 3px solid rgba(196, 107, 34, 0.22);
+  border-color: #c46b22;
+}
+
+.raw-input-search-hint {
+  margin: 0.35rem 0 0;
+  color: #786a58;
+  font-size: 0.82rem;
+}
+
+.raw-input-dropdown {
+  position: absolute;
+  z-index: 10;
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  max-height: 24rem;
+  overflow: auto;
+  margin-top: 0.35rem;
+  border: 1px solid rgba(90, 59, 30, 0.16);
+  border-radius: 18px;
+  padding: 0.45rem;
+  background:
+    radial-gradient(circle at top right, rgba(196, 107, 34, 0.12), transparent 13rem),
+    #fffdf8;
+  box-shadow: 0 22px 60px rgba(89, 54, 20, 0.18);
+}
+
+.raw-input-option {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.65rem;
+  align-items: center;
+  border-color: transparent;
+  border-radius: 14px;
+  padding: 0.58rem 0.65rem;
+  background: rgba(255, 253, 248, 0.64);
+  text-align: left;
+}
+
+.raw-input-option.active,
+.raw-input-option[aria-selected="true"] {
+  border-color: #c46b22;
+  background: #fff3df;
+  box-shadow: inset 4px 0 0 #c46b22;
+  transform: none;
+}
+
+.raw-input-option-main {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.raw-input-option-main > span:last-child,
+.raw-input-enable span {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.raw-input-option-main strong,
+.raw-input-enable strong {
+  overflow-wrap: anywhere;
+}
+
+.raw-input-option small,
+.subtle-meta {
+  color: #786a58;
+  font-size: 0.78rem;
+}
+
+.raw-input-option-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.raw-input-option-state {
+  min-width: 3.2rem;
+  border-radius: 999px;
+  padding: 0.22rem 0.5rem;
+  background: #eff8f1;
+  color: #2e6e49;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.raw-input-option-state.existing {
+  background: #eef7fb;
+  color: #235b80;
+}
+
+.raw-input-empty {
+  margin: 0.4rem 0.55rem;
+}
+
+.raw-input-row-main {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.raw-input-enable {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.raw-input-enable small {
+  color: #786a58;
+  font-weight: 400;
+}
+
+.raw-input-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.raw-input-row-meta small {
+  color: #786a58;
+  font-size: 0.78rem;
+}
+
+.raw-kind {
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.raw-kind-item {
+  border-color: rgba(196, 107, 34, 0.24);
+  background: #fff1c9;
+  color: #8a4d18;
+}
+
+.raw-kind-fluid {
+  border-color: rgba(35, 91, 128, 0.28);
+  background: #eef7fb;
+  color: #235b80;
+}
+
+.raw-kind-unknown {
+  border-color: rgba(154, 71, 38, 0.36);
+  background: #fff3df;
+  color: #9a4726;
+}
+
+.remove-input {
+  align-self: center;
+  justify-self: end;
+  border-color: rgba(180, 66, 50, 0.24);
+  padding: 0.45rem 0.72rem;
+  color: #8a2c20;
+  background: #fff8f4;
+}
+
+.remove-input:hover:not(:disabled) {
+  border-color: #b44232;
+  background: #fff3ee;
+  box-shadow: 0 8px 20px rgba(180, 66, 50, 0.12);
+}
+
+.input-card > small {
   grid-column: 1 / -1;
   color: #8a4d18;
 }
@@ -1471,6 +1684,20 @@ td {
 
   .flow-mode-controls button {
     padding: 0.42rem 0.62rem;
+  }
+
+  .raw-input-option {
+    grid-template-columns: 1fr;
+    gap: 0.45rem;
+  }
+
+  .raw-input-option-meta {
+    justify-content: flex-start;
+  }
+
+  .raw-input-option-state,
+  .remove-input {
+    justify-self: start;
   }
 
   .cluster-total-cards,

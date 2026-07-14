@@ -8,9 +8,12 @@ import {
   type ExplorerSelection,
 } from '../domain/explorerState';
 import { ExplorerPanel } from './ExplorerPanel';
+import { RawInputReviewPanel } from './RawInputReviewPanel';
 import { SolveResultPanel } from './solve-result/SolveResultPanel';
 import {
   createEditableProblem,
+  DEFAULT_RAW_INPUT_CAPACITY,
+  DEFAULT_RAW_INPUT_COST,
   DEFAULT_SPARSE_CLUSTERING,
   displayRateToItemsPerSecond,
   findApprovedInputsMissingCapacity,
@@ -21,6 +24,7 @@ import {
   type DisplayRateUnits,
   type EditableProblem,
 } from '../domain/problemState';
+import { friendlyItemName } from '../domain/itemDisplay';
 
 type Notice = {
   title: string;
@@ -51,8 +55,6 @@ export function App() {
   const [explorerAutoLoadBlocked, setExplorerAutoLoadBlocked] = useState(false);
   const [explorerSelection, setExplorerSelection] = useState<ExplorerSelection>(null);
   const [demandSearch, setDemandSearch] = useState('');
-  const [inputSearch, setInputSearch] = useState('');
-  const [showDisabledInputs, setShowDisabledInputs] = useState(false);
   const [storageKey, setStorageKey] = useState<string | null>(null);
   const [selectedMilestone, setSelectedMilestone] = useState<string>('');
   const pollCancelRef = useRef(false);
@@ -274,22 +276,18 @@ export function App() {
   }
 
   function updateExternalInput(
-    itemId: string,
-    patch: Partial<{ enabled: boolean; cost: string; capacity: string }>,
+    externalInputs: EditableProblem['externalInputs'],
   ) {
     setEditable((current) =>
       current
         ? {
             ...current,
-            externalInputs: current.externalInputs.map((input) =>
-              input.item_id === itemId ? { ...input, ...patch } : input,
-            ),
+            externalInputs,
           }
         : current,
     );
   }
 
-  const itemNames = new Set(problem?.items.map((item) => item.id) ?? []);
   const scenarioTitle = problem?.scenario_label ?? 'Scenario';
   const scenarioId = problem?.scenario_id ?? 'default-scenario';
   const milestoneOptions = scienceMilestoneOptions(problem);
@@ -306,11 +304,6 @@ export function App() {
       const rightOrder = milestoneOrder.get(right) ?? Number.MAX_SAFE_INTEGER;
       return leftOrder - rightOrder || left.localeCompare(right);
     });
-  const visibleExternalInputs = (editable?.externalInputs ?? []).filter((input) => {
-    const matchesSearch = input.item_id.toLowerCase().includes(inputSearch.toLowerCase());
-    return matchesSearch && (showDisabledInputs || input.enabled);
-  });
-
   return (
     <main className="app-shell">
       <header className="hero">
@@ -421,73 +414,11 @@ export function App() {
 
             <Panel
               title="Raw input review"
-              subtitle="Backend-computed candidates. Approve what may enter from outside the factory."
+              subtitle="Review suggested raw inputs or add any catalog item/fluid as external supply."
             >
               {editable ? (
                 <>
-                  <div className="filters">
-                    <input
-                      type="search"
-                      placeholder="Search external inputs"
-                      value={inputSearch}
-                      onChange={(event) => setInputSearch(event.target.value)}
-                    />
-                    <label className="check inline">
-                      <input
-                        type="checkbox"
-                        checked={showDisabledInputs}
-                        onChange={(event) => setShowDisabledInputs(event.target.checked)}
-                      />{' '}
-                      Show disabled
-                    </label>
-                  </div>
-                  {visibleExternalInputs.map((input) => (
-                    <div className="input-card" key={input.item_id}>
-                      <label className="check">
-                        <input
-                          type="checkbox"
-                          checked={input.enabled}
-                          onChange={(event) =>
-                            updateExternalInput(input.item_id, { enabled: event.target.checked })
-                          }
-                        />{' '}
-                        {friendlyItemName(input.item_id)}
-                      </label>
-                      <span className="source-pill">{input.kind ?? 'unknown'}</span>
-                      <span className="source-pill">{sourceLabel(input.source)}</span>
-                      {!itemNames.has(input.item_id) && <small>Not listed in item table</small>}
-                      <label>
-                        Cost
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={input.cost}
-                          onChange={(event) =>
-                            updateExternalInput(input.item_id, {
-                              cost: event.target.value,
-                            })
-                          }
-                        />
-                      </label>
-                      <label>
-                        Capacity
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          placeholder="required cap"
-                          value={input.capacity}
-                          onChange={(event) =>
-                            updateExternalInput(input.item_id, {
-                              capacity: event.target.value,
-                            })
-                          }
-                        />
-                      </label>
-                    </div>
-                  ))}
-                  {!visibleExternalInputs.length && <p className="muted">No matching inputs.</p>}
+                  {problem && <RawInputReviewPanel problem={problem} externalInputs={editable.externalInputs} onChange={updateExternalInput} />}
                 </>
               ) : loading ? (
                 <p>Loading inputs…</p>
@@ -692,12 +623,12 @@ function NoticeBox({ notice }: { notice: Notice }) {
   );
 }
 
-function createEditableProblemFromStorage(problem: ProblemDto): EditableProblem {
+export function createEditableProblemFromStorage(problem: ProblemDto): EditableProblem {
   const base = createEditableProblem(problem);
   const saved = readSavedEditableProblem(problemLocalStorageKey(problem));
   if (!saved) return base;
 
-  const savedInputs = new Map(saved.externalInputs.map((input) => [input.item_id, input]));
+  const externalInputs = reconcileSavedExternalInputs(problem, saved.externalInputs);
   return {
     ...base,
     solveMode: saved.solveMode,
@@ -705,21 +636,29 @@ function createEditableProblemFromStorage(problem: ProblemDto): EditableProblem 
     demands: Object.fromEntries(
       Object.keys(base.demands).map((itemId) => [itemId, saved.demands[itemId] ?? base.demands[itemId]]),
     ),
-    externalInputs: base.externalInputs.map((input) => {
-      const savedInput = savedInputs.get(input.item_id);
-      const savedCapacity = savedInput?.capacity;
-      return {
-        ...input,
-        enabled: savedInput?.enabled ?? input.enabled,
-        cost: savedInput?.cost ?? input.cost,
-        capacity:
-          savedCapacity != null && isValidRequiredNonnegativeNumber(savedCapacity)
-            ? savedCapacity
-            : input.capacity,
-      };
-    }),
+    externalInputs,
     sparseClustering: sanitizeSavedSparseClustering(saved.sparseClustering),
   };
+}
+
+export function reconcileSavedExternalInputs(
+  problem: Pick<ProblemDto, 'items'>,
+  savedInputs: EditableProblem['externalInputs'],
+): EditableProblem['externalInputs'] {
+  const catalog = new Map(problem.items.map((item) => [item.id, item.kind]));
+  const seen = new Set<string>();
+  return savedInputs.flatMap((input) => {
+    const catalogKind = catalog.get(input.item_id);
+    if (!catalogKind || seen.has(input.item_id)) return [];
+    seen.add(input.item_id);
+    return [{
+      ...input,
+      kind: catalogKind,
+      enabled: input.enabled,
+      cost: isValidOptionalNonnegativeNumber(input.cost) ? input.cost : DEFAULT_RAW_INPUT_COST,
+      capacity: isValidRequiredNonnegativeNumber(input.capacity) ? input.capacity : DEFAULT_RAW_INPUT_CAPACITY,
+    }];
+  });
 }
 
 function readSavedEditableProblem(key: string): SavedEditableProblem | null {
@@ -747,6 +686,7 @@ function readSavedEditableProblem(key: string): SavedEditableProblem | null {
         enabled: typeof input.enabled === 'boolean' ? input.enabled : false,
         cost: typeof input.cost === 'string' ? input.cost : '',
         capacity: typeof input.capacity === 'string' ? input.capacity : '',
+        source: sanitizeInputSource(input.source),
         defaultApproved: typeof input.defaultApproved === 'boolean' ? input.defaultApproved : false,
       }];
     });
@@ -805,6 +745,10 @@ function sanitizeStringRecord(value: Record<string, unknown>): Record<string, st
 
 function sanitizeInputKind(value: unknown): 'item' | 'fluid' | 'unknown' {
   return value === 'item' || value === 'fluid' || value === 'unknown' ? value : 'unknown';
+}
+
+function sanitizeInputSource(value: unknown): EditableProblem['externalInputs'][number]['source'] {
+  return value === 'default_input' || value === 'inferred_unproduced' || value === 'inferred_fluid' ? value : undefined;
 }
 
 function scienceMilestoneOptions(problem: ProblemDto | null): string[] {
@@ -1049,27 +993,6 @@ function fromItemsPerSecond(value: number, units: DisplayRateUnits): number {
 
 function formatEditableRate(value: number): string {
   return Number.isInteger(value) ? String(value) : String(Number(value.toPrecision(8)));
-}
-
-function friendlyItemName(itemId: string): string {
-  return itemId
-    .split('-')
-    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
-    .join(' ');
-}
-
-function sourceLabel(source: string | null | undefined): string {
-  switch (source) {
-    case 'package_external_supply':
-    case 'default_input':
-      return 'Default input';
-    case 'inferred_unproduced':
-      return 'Suggested';
-    case 'inferred_fluid':
-      return 'Suggested fluid';
-    default:
-      return 'candidate';
-  }
 }
 
 function toNotice(error: unknown, fallback: string): Notice {

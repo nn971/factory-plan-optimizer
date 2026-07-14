@@ -27,8 +27,9 @@ if TYPE_CHECKING:
     )
 
 
-DEFAULT_PACKAGE_ID = "default-first-3-science-v1"
-DEFAULT_SCENARIO_ID = "first-3-science-v1"
+DEFAULT_PACKAGE_ID = "default-scenario"
+DEFAULT_SCENARIO_ID = "default-scenario"
+LEGACY_DEFAULT_PACKAGE_IDS = frozenset({"default-first-3-science-v1"})
 DEFAULT_SCENARIO_LABEL = "First 3 science packs"
 DEFAULT_EXTERNAL_INPUT_CAPACITY = 100_000.0
 FREE_RESOURCE_DEFAULTS = frozenset({"water"})
@@ -52,7 +53,7 @@ def problem_from_package(
     scenario_label: str = DEFAULT_SCENARIO_LABEL,
 ) -> ProblemDto:
     target_demands = _target_demands(package)
-    raw_input_candidates = infer_raw_input_candidates(package, target_demands)
+    raw_input_candidates = raw_input_candidates_for_package(package, target_demands)
     return ProblemDto(
         package_id=package_id,
         scenario_id=scenario_id or package_id,
@@ -82,6 +83,12 @@ def infer_raw_input_candidates(
     package: FactoryDataPackage,
     target_demands: list[str] | None = None,
 ) -> list[ExternalInputDto]:
+    """Infer legacy raw input candidates for packages without curated suggestions.
+
+    This broad heuristic is obsolete compatibility logic. New canonical packages
+    should set raw_input_suggestions, including an explicit empty list when no
+    startup suggestions are desired.
+    """
     target_ids = set(target_demands or [])
     produced_ids = {
         item_id
@@ -112,6 +119,47 @@ def infer_raw_input_candidates(
         for item_id in item_ids
         if item_id in candidate_ids and item_id not in target_ids
     ]
+
+
+def raw_input_candidates_for_package(
+    package: FactoryDataPackage,
+    target_demands: list[str] | None = None,
+) -> list[ExternalInputDto]:
+    if package.raw_input_suggestions is not None:
+        return raw_input_candidates_from_suggestions(package)
+    return infer_raw_input_candidates(package, target_demands)
+
+
+def raw_input_candidates_from_suggestions(
+    package: FactoryDataPackage,
+) -> list[ExternalInputDto]:
+    kind_by_item_id = {item.id: item.kind for item in package.items}
+    return [
+        _raw_input_candidate_from_suggestion(
+            item_id,
+            kind_by_item_id[item_id],
+            package.external_supplies.get(item_id),
+        )
+        for item_id in package.raw_input_suggestions or ()
+    ]
+
+
+def _raw_input_candidate_from_suggestion(
+    item_id: str,
+    kind: ItemKind,
+    supply: ExternalSupply | None,
+) -> ExternalInputDto:
+    if supply is not None:
+        return _raw_input_candidate(item_id, kind, supply)
+    return ExternalInputDto(
+        item_id=item_id,
+        kind=kind,
+        enabled=False,
+        cost=0.0,
+        capacity=DEFAULT_EXTERNAL_INPUT_CAPACITY,
+        source=None,
+        default_approved=False,
+    )
 
 
 def _raw_input_candidate(
@@ -210,6 +258,7 @@ def package_with_edits(
         recipes=recipes,
         final_demands=demands,
         external_supplies=supplies,
+        raw_input_suggestions=package.raw_input_suggestions,
         unmet_demand_penalty_rate=package.unmet_demand_penalty_rate,
         milestones=package.milestones,
     )

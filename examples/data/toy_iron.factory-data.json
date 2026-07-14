@@ -71,5 +71,8 @@
       "capacity": null
     }
   },
+  "raw_input_suggestions": [
+    "iron-ore"
+  ],
   "unmet_demand_penalty_rate": 1000000.0
 }

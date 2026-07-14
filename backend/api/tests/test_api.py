@@ -486,7 +486,7 @@ def test_solve_enabled_sparse_clustering_response_shape(
     assert sparse["effective_config"]["max_refinement_passes"] == 0
     assert sparse["effective_config"]["port_epsilon"] == SPARSE_TEST_PORT_EPSILON
     assert sparse["recipe_assignments"]["total_count"] >= 1
-    assert {"items", "total_count", "truncated"} <= set(sparse["boundary_flows"])
+    assert {"items", "total_count", "truncated"} <= set(sparse["boundary_port_types"])
     assert "boundary_port_type_count" in sparse["graph_statistics"]
     assert sparse["boundary_port_type_count"] == sparse["net_port_count"]
     assert sparse["port_aware_objective"]["net_port_count"] == sparse["net_port_count"]

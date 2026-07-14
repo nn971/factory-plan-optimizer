@@ -1057,6 +1057,12 @@ select {
   color: #8a2c20;
 }
 
+.flow-overlay-note.info {
+  border-color: rgba(35, 91, 128, 0.25);
+  background: #eef7fb;
+  color: #235b80;
+}
+
 .flow-diagnostic-spotlight {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
@@ -1106,26 +1112,6 @@ select {
 .flow-warning-list ul {
   margin: 0.45rem 0 0;
   padding-left: 1.2rem;
-}
-
-.flow-cluster-controls {
-  border: 1px solid rgba(196, 107, 34, 0.28);
-  border-radius: 18px;
-  padding: 0.85rem 1rem;
-  margin: 1rem 0;
-  background: rgba(255, 248, 232, 0.86);
-}
-
-.flow-cluster-controls div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 0.6rem;
-}
-
-.flow-cluster-controls button.expanded {
-  border-color: #c46b22;
-  background: #fff1c9;
 }
 
 .flow-graph-canvas {
@@ -1206,97 +1192,72 @@ select {
 .legend-swatch.unmet { background: #b44232; }
 .legend-swatch.surplus { background: #b87c1b; }
 
-.flow-graph-svg {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  height: auto;
+.rf-flow-canvas {
+  min-height: 32rem;
+  overflow: hidden;
 }
 
-.flow-edge path {
-  fill: none;
-  stroke: #6d7f88;
-  stroke-width: 2.8;
-  stroke-linecap: round;
-  opacity: 0.72;
+.rf-flow-canvas .react-flow {
+  min-height: 28rem;
 }
 
-.flow-edge text {
-  paint-order: stroke;
-  stroke: #fffdf8;
-  stroke-width: 5px;
-  fill: #2f2419;
-  font-size: 11px;
+.rf-flow-status {
+  padding: 1rem;
+}
+
+.rf-flow-node {
+  border: 1px solid rgba(90, 59, 30, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 253, 248, 0.96);
+  color: #2f2419;
+  box-shadow: 0 10px 28px rgba(47, 36, 25, 0.08);
+}
+
+.rf-flow-node.selected {
+  border-color: #c46b22;
+  box-shadow: 0 0 0 3px rgba(196, 107, 34, 0.18);
+}
+
+.rf-flow-node-cluster {
+  background: #f3ead8;
+  border-color: rgba(196, 107, 34, 0.28);
+}
+
+.rf-flow-node-recipe { border-color: rgba(31, 59, 44, 0.28); }
+.rf-flow-node-item { border-color: rgba(196, 107, 34, 0.25); }
+.rf-flow-node-diagnostic-unmet { border-color: rgba(180, 66, 50, 0.35); }
+.rf-flow-node-diagnostic-surplus { border-color: rgba(184, 124, 27, 0.35); }
+.rf-flow-node-diagnostic-external { border-color: rgba(47, 126, 99, 0.35); }
+
+.rf-flow-node-label {
+  display: grid;
+  gap: 0.25rem;
+  place-items: center;
+  height: 100%;
+  padding: 0.45rem;
+  text-align: center;
+}
+
+.rf-flow-node-label span {
+  color: #786a58;
+  font-size: 0.78rem;
   font-weight: 800;
-  font-variant-numeric: tabular-nums;
 }
 
-.flow-edge.external-supply path { stroke: #2f7e63; }
-.flow-edge.unmet-demand path { stroke: #b44232; stroke-width: 4.2; opacity: 0.9; }
-.flow-edge.surplus path { stroke: #b87c1b; stroke-width: 4; opacity: 0.86; }
-.flow-edge.recipe-input path { stroke: #546c63; }
-.flow-edge.recipe-output path { stroke: #c46b22; }
-.flow-edge.collapsed path { stroke-dasharray: 0.08 0.08; opacity: 0.58; }
-
-.flow-node circle {
-  fill: #fffdf8;
+.rf-flow-edge path {
   stroke: #6d7f88;
-  stroke-width: 4;
-  filter: drop-shadow(0 5px 8px rgba(89, 54, 20, 0.18));
+  stroke-width: 2.4;
 }
 
-.flow-node {
-  cursor: pointer;
-  outline: none;
+.rf-flow-edge-cluster-net-port path {
+  stroke: #c46b22;
+  stroke-width: 3;
 }
 
-.flow-node.selected circle,
-.flow-node:focus circle {
+.rf-flow-edge.selected path,
+.rf-flow-edge:focus path {
   stroke: #b44232;
-  stroke-width: 6;
-}
-
-.flow-node.item circle { stroke: #c46b22; }
-.flow-node.recipe circle { fill: #1f3b2c; stroke: #1f3b2c; }
-.flow-node.external circle { stroke: #2f7e63; }
-.flow-node.unmet circle { fill: #b44232; stroke: #b44232; }
-.flow-node.surplus circle { fill: #b87c1b; stroke: #b87c1b; }
-.flow-node.missing-recipe circle { fill: #fff3ee; stroke: #b44232; }
-.flow-node.cluster circle { fill: #fff1c9; stroke: #c46b22; stroke-width: 5; }
-.flow-node.optimizer-overlay circle { stroke-width: 6; }
-.flow-node.optimizer-overlay.cluster-accent-1 circle { stroke: #235b80; }
-.flow-node.optimizer-overlay.cluster-accent-2 circle { stroke: #2f7e63; }
-.flow-node.optimizer-overlay.cluster-accent-3 circle { stroke: #8a4d18; }
-.flow-node.optimizer-overlay.cluster-accent-4 circle { stroke: #7a4fa3; }
-.flow-node.optimizer-overlay.cluster-accent-5 circle { stroke: #b44232; }
-.flow-node.optimizer-overlay.cluster-accent-6 circle { stroke: #c46b22; }
-
-.flow-node text {
-  paint-order: stroke;
-  stroke: #fffdf8;
-  stroke-width: 5px;
-  fill: #2f2419;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.flow-node .node-label {
-  max-width: 10rem;
-}
-
-.flow-node .node-quantity {
-  font-variant-numeric: tabular-nums;
-}
-
-.flow-node .node-badge {
-  fill: #8a2c20;
-  font-size: 10px;
-}
-
-.flow-node .node-overlay-badge {
-  fill: #235b80;
-  font-size: 10px;
-  letter-spacing: 0.02em;
+  stroke-width: 4;
 }
 
 .cluster-diagnostics-panel {

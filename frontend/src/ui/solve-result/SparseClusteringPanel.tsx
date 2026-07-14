@@ -85,8 +85,8 @@ export function SparseClusteringPanel({ result }: { result: SparseClusteringResu
             <BoundaryPortTable capped={result.boundary_port_types} />
             <ExternalBoundaryPortTable capped={result.external_boundary_port_types} />
           </div>
+          <p className="muted">Source-target cluster allocation is not reported. Cluster net ports are authoritative for sparse overview visualization.</p>
           <div className="sparse-result-grid wide">
-            <BoundaryFlowTable capped={result.boundary_flows} />
             <SurplusUnmetTable capped={result.surplus_unmet_summary} />
           </div>
         </details>
@@ -156,21 +156,6 @@ function ExternalBoundaryPortTable({ capped }: { capped: SparseClusteringResultD
           <td><code>{clusterLabel(row.cluster_id)}</code></td>
           <td>{row.direction}</td>
           <td>{formatNumber(row.source_or_demand_amount)}</td>
-        </tr>
-      )) ?? []}
-    </CappedTable>
-  );
-}
-
-function BoundaryFlowTable({ capped }: { capped: SparseClusteringResultDto['boundary_flows'] }) {
-  return (
-    <CappedTable title="Flow estimates" capped={capped} empty="No flow estimates to show." headers={['Item', 'From', 'To', 'Estimated flow']}>
-      {capped?.items.map((row) => (
-        <tr key={`${row.source_cluster_id}:${row.target_cluster_id}:${row.item_id}`}>
-          <th scope="row"><code>{displayId(row.item_id)}</code></th>
-          <td><code>{clusterLabel(row.source_cluster_id)}</code></td>
-          <td><code>{clusterLabel(row.target_cluster_id)}</code></td>
-          <td>{formatNumber(row.estimated_flow)}</td>
         </tr>
       )) ?? []}
     </CappedTable>

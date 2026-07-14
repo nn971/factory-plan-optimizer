@@ -130,9 +130,10 @@ clusters are deterministic and fixed after the solve:
    fluid consumed by the other.
 3. Each connected component is a diagnostic cluster.
 
-Cross-category producer/consumer relationships remain boundary flows instead of
-merging categories into one cluster. This keeps the first diagnostic heuristic
-simple and avoids turning dense dependency graphs into one large cluster.
+Cross-category producer/consumer relationships are summarized by cluster item
+nets instead of source-target flow allocation. This keeps the first diagnostic
+heuristic simple and avoids turning dense dependency graphs into one large
+cluster.
 
 #### Cluster item nets and boundary rows
 

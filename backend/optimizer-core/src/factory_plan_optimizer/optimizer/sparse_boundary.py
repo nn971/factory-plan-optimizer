@@ -39,14 +39,6 @@ def analyze_boundaries(  # noqa: C901,PLR0912,PLR0913
     for recipe_id, cluster_id in sorted(assignments.items()):
         cluster_recipes[cluster_id].append(recipe_id)
 
-    boundary_flow_amounts: dict[tuple[int, int, str], float] = defaultdict(float)
-    for edge in graph.edges:
-        source = assignments[edge.producer_recipe_id]
-        target = assignments[edge.consumer_recipe_id]
-        if source == target:
-            continue
-        boundary_flow_amounts[(source, target, edge.item_id)] += edge.estimated_flow
-
     external_amounts: dict[tuple[int, str, str], float] = {}
     for item_id, amount in sorted(external_supplies.items()):
         if amount <= 0.0:
@@ -96,7 +88,6 @@ def analyze_boundaries(  # noqa: C901,PLR0912,PLR0913
             "net_port_count": input_count + output_count,
         }
 
-    boundary_flows = _boundary_flow_rows(boundary_flow_amounts)
     external_ports = _external_port_rows(external_amounts)
     port_rows = sorted(
         net_port_rows,
@@ -130,7 +121,6 @@ def analyze_boundaries(  # noqa: C901,PLR0912,PLR0913
             ],
             caps["recipe_assignments"],
         ),
-        "boundary_flows": capped(boundary_flows, caps["boundary_flows"]),
         "boundary_port_types": capped(port_rows, caps["boundary_port_types"]),
         "external_boundary_port_types": capped(
             external_ports,
@@ -141,31 +131,11 @@ def analyze_boundaries(  # noqa: C901,PLR0912,PLR0913
             "boundary_port_type_count": net_port_count,
             "net_port_count": net_port_count,
             "size_imbalance": _imbalance(clusters),
-            "boundary_flow_amount": sum(
-                row["estimated_flow"] for row in boundary_flows
-            ),
         },
         "boundary_port_type_count": net_port_count,
         "net_port_count": net_port_count,
         "external_boundary_port_type_count": len(external_ports),
     }
-
-
-def _boundary_flow_rows(
-    amounts: Mapping[tuple[int, int, str], float],
-) -> list[dict[str, Any]]:
-    return [
-        {
-            "source_cluster_id": source,
-            "target_cluster_id": target,
-            "item_id": item_id,
-            "estimated_flow": amount,
-        }
-        for (source, target, item_id), amount in sorted(
-            amounts.items(),
-            key=lambda row: (row[0][2], row[0][0], row[0][1]),
-        )
-    ]
 
 
 def _external_port_rows(

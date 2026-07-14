@@ -156,6 +156,8 @@ def test_boundary_external_ports_and_surplus_unmet_are_separate() -> None:
     )
     assert result["status"] == "success"
     assert "reason_code" not in result
+    assert "boundary_flows" not in result
+    assert "boundary_flow_amount" not in result["quality"]
     ports = result["boundary_port_types"]["items"]
     assert any(
         port["direction"] == "output" and port["item_id"] == "science" for port in ports

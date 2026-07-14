@@ -43,13 +43,13 @@ SparseClusteringReasonCode = Literal[
 
 DEFAULT_RESULT_CAPS = {
     "recipe_assignments": 2_000,
-    "boundary_flows": 2_000,
     "boundary_port_types": 2_000,
     "external_boundary_port_types": 200,
     "surplus_unmet": 100,
     "hub_summaries": 100,
     "cluster_summaries": 100,
 }
+LEGACY_RESULT_CAPS = {"boundary_flows"}
 FAST_DEFAULT_REFINEMENT_PASSES = 1
 BALANCED_DEFAULT_REFINEMENT_PASSES = 8
 MIN_MAX_RUNTIME_SECONDS_EXCLUSIVE = 0.0
@@ -139,7 +139,7 @@ class SparseClusteringConfig:
             message = "min_cluster_size_ratio must not exceed max_cluster_size_ratio"
             raise ValueError(message)
         for key, value in self.result_caps.items():
-            if key not in DEFAULT_RESULT_CAPS:
+            if key not in DEFAULT_RESULT_CAPS and key not in LEGACY_RESULT_CAPS:
                 message = f"unknown result cap: {key}"
                 raise ValueError(message)
             if not isinstance(value, int) or value < 0:
@@ -312,7 +312,11 @@ def _status(
 
 
 def _caps(cfg: SparseClusteringConfig) -> dict[str, int]:
-    return dict(DEFAULT_RESULT_CAPS) | cfg.result_caps
+    return dict(DEFAULT_RESULT_CAPS) | {
+        key: value
+        for key, value in cfg.result_caps.items()
+        if key in DEFAULT_RESULT_CAPS
+    }
 
 
 def _graph_stats(graph: SparseGraph, cfg: SparseClusteringConfig) -> dict[str, Any]:

@@ -1,59 +1,49 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import { Background, Controls, Position, ReactFlow, type Edge, type Node } from '@xyflow/react';
 
 import type { SolveResultDto } from '../../api/dtos';
-import {
-  buildDisplayFlowGraph,
-  buildFlowSelectionDetailIndex,
-  buildOptimizerOverlay,
-  type ActiveFlowGraph,
-  type DisplayFlowEdge,
-  type DisplayFlowNode,
-  type FlowGraphMode,
-} from '../../domain/solveResultFlow';
+import type { ActiveFlowGraph, FlowGraphMode } from '../../domain/solveResultFlow';
+import { buildSolveResultVisualGraph, type VisualGraph, type VisualGraphEdge, type VisualGraphNode } from '../../domain/solveResultVisualGraph';
+import { layoutVisualGraph, type FlowLayoutResult, type PositionedVisualGraph } from './flowLayout';
 import { NodeDetails } from './NodeDetails';
 
-const MIN_GRAPH_WIDTH = 560;
-const HORIZONTAL_PAD = 64;
-const TOP_PAD = 64;
-const BOTTOM_PAD = 78;
-const NODE_RADIUS = 15;
-
-type PositionedNode = DisplayFlowNode & { x: number; y: number; column: number };
-
-type FlowGraphLayout = {
-  nodes: PositionedNode[];
-  width: number;
-  height: number;
-};
-
-export function FlowGraph({ graph, result, initialMode = 'raw' }: { graph: ActiveFlowGraph; result: SolveResultDto; initialMode?: FlowGraphMode }) {
-  const [graphMode, setGraphMode] = useState<FlowGraphMode>(initialMode);
-  const [expandedClusters, setExpandedClusters] = useState<Set<string>>(() => new Set());
+export function FlowGraph({ graph, result, initialMode }: { graph: ActiveFlowGraph; result: SolveResultDto; initialMode?: FlowGraphMode }) {
+  const explorerMetadataAvailable = !graph.warnings.some((warning) => warning.kind === 'recipe-topology-unavailable');
+  const computedDefaultMode = useMemo(() => defaultGraphMode(graph, result, explorerMetadataAvailable), [explorerMetadataAvailable, graph, result]);
+  const [graphMode, setGraphMode] = useState<FlowGraphMode>(() => normalizeMode(initialMode ?? computedDefaultMode));
+  const [userSelectedMode, setUserSelectedMode] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const displayMode = graphMode === 'heuristic' ? 'heuristic' : 'raw';
-  const displayGraph = useMemo(
-    () => buildDisplayFlowGraph(graph, expandedClusters, displayMode),
-    [graph, expandedClusters, displayMode],
+  const [layoutResult, setLayoutResult] = useState<FlowLayoutResult | null>(null);
+  const visualGraph = useMemo(
+    () => graphMode === 'optimizer-overlay'
+      ? buildSolveResultVisualGraph(graph, result, { explorerMetadataAvailable })
+      : buildSolveResultVisualGraph(graph, { ...result, sparse_clustering: null }, { explorerMetadataAvailable }),
+    [explorerMetadataAvailable, graph, graphMode, result],
   );
-  const overlay = graphMode === 'optimizer-overlay' ? buildOptimizerOverlay(graph, result) : null;
-  const selectedNodeIsVisible = selectedId ? displayGraph.nodes.some((node) => node.id === selectedId) : true;
-  const effectiveSelectedId = selectedNodeIsVisible ? selectedId : null;
-  const detailIndex = useMemo(
-    () => buildFlowSelectionDetailIndex(graph, result, displayGraph.clusters),
-    [graph, result, displayGraph.clusters],
-  );
-  const selectedDetails = effectiveSelectedId ? detailIndex.detailById.get(effectiveSelectedId) ?? null : null;
-  const layout = layoutFlowGraphNodes(displayGraph.nodes);
-  const positionedNodes = layout.nodes;
-  const nodeById = new Map(positionedNodes.map((node) => [node.id, node]));
-  const prominentDiagnostics = graph.diagnostics.filter(
-    (diagnostic) => diagnostic.kind === 'unmet' || diagnostic.kind === 'surplus',
-  );
+  const prominentDiagnostics = graph.diagnostics.filter((diagnostic) => diagnostic.kind === 'unmet' || diagnostic.kind === 'surplus');
+  const selectedIdExists = selectedId ? selectedVisualIdExists(visualGraph, selectedId) : true;
+  const effectiveSelectedId = selectedIdExists ? selectedId : null;
+  const selectedDetails = effectiveSelectedId ? visualGraph.detailById.get(effectiveSelectedId) ?? null : null;
+  const layoutGraph = layoutResult?.ok && layoutResult.graph.graph === visualGraph ? layoutResult.graph : null;
+  const flowNodes = useMemo(() => layoutGraph ? toReactFlowNodes(layoutGraph, selectedId) : [], [layoutGraph, selectedId]);
+  const flowEdges = useMemo(() => layoutGraph ? toReactFlowEdges(layoutGraph, selectedId) : [], [layoutGraph, selectedId]);
 
   useEffect(() => {
-    if (!selectedNodeIsVisible) setSelectedId(null);
-  }, [selectedNodeIsVisible]);
+    let cancelled = false;
+    setLayoutResult(null);
+    void layoutVisualGraph(visualGraph).then((next) => {
+      if (!cancelled) setLayoutResult(next);
+    });
+    return () => { cancelled = true; };
+  }, [visualGraph]);
+
+  useEffect(() => {
+    if (!selectedIdExists) setSelectedId(null);
+  }, [selectedIdExists]);
+
+  useEffect(() => {
+    if (!initialMode && !userSelectedMode) setGraphMode(computedDefaultMode);
+  }, [computedDefaultMode, initialMode, userSelectedMode]);
 
   return (
     <section className="flow-graph-panel" aria-labelledby="flow-graph-title">
@@ -61,14 +51,11 @@ export function FlowGraph({ graph, result, initialMode = 'raw' }: { graph: Activ
         <div>
           <p className="eyebrow">Active flow graph</p>
           <h3 id="flow-graph-title">Solved item and recipe flow</h3>
-          <p className="muted">
-            First-pass graph from active recipe rates. Node labels are shortened for readability; raw tables below keep exact IDs and values.
-          </p>
+          <p className="muted">React Flow view of active recipes, diagnostics, and optimizer clusters when complete.</p>
         </div>
         <div className="flow-graph-counts">
-          <span><strong>{graph.nodes.length}</strong> nodes</span>
-          <span><strong>{graph.edges.length}</strong> edges</span>
-          {displayGraph.clusters.length > 0 && graphMode === 'heuristic' && <span><strong>{displayGraph.clusters.length}</strong> groups</span>}
+          <span><strong>{visualGraph.nodes.length}</strong> nodes</span>
+          <span><strong>{visualGraph.edges.length}</strong> edges</span>
           <span><strong>{graph.warnings.length}</strong> warnings</span>
         </div>
       </div>
@@ -76,35 +63,14 @@ export function FlowGraph({ graph, result, initialMode = 'raw' }: { graph: Activ
       <fieldset className="flow-mode-controls">
         <legend>Graph mode</legend>
         {GRAPH_MODES.map((mode) => (
-          <button
-            key={mode.id}
-            type="button"
-            className={graphMode === mode.id ? 'active' : ''}
-            onClick={() => {
-              setGraphMode(mode.id);
-              setExpandedClusters(new Set());
-            }}
-            aria-pressed={graphMode === mode.id}
-          >
+          <button key={mode.id} type="button" className={graphMode === mode.id ? 'active' : ''} onClick={() => { setUserSelectedMode(true); setGraphMode(mode.id); }} aria-pressed={graphMode === mode.id}>
             <strong>{mode.label}</strong>
             <span>{mode.hint}</span>
           </button>
         ))}
       </fieldset>
 
-      {graphMode === 'optimizer-overlay' && overlay && (
-        overlay.available ? (
-          <div className="flow-overlay-note success">
-            <strong>Overlay source</strong>
-            <span>{overlay.label}. Complete active recipe mapping.</span>
-          </div>
-        ) : (
-          <output className="flow-overlay-note warning">
-            <strong>Overlay unavailable</strong>
-            <span>{overlay.reason} Showing raw graph.</span>
-          </output>
-        )
-      )}
+      {graphMode === 'optimizer-overlay' && <OptimizerOverlayNotice visualGraph={visualGraph} />}
 
       {prominentDiagnostics.length > 0 && (
         <div className="flow-diagnostic-spotlight">
@@ -121,75 +87,36 @@ export function FlowGraph({ graph, result, initialMode = 'raw' }: { graph: Activ
       {graph.warnings.length > 0 && (
         <div className="flow-warning-list">
           <strong>Graph diagnostics to review</strong>
-          <ul>
-            {graph.warnings.map((warning, index) => (
-              <li key={`${warning.kind}:${warning.recipeId ?? ''}:${warning.itemId ?? ''}:${warning.field ?? ''}:${index}`}>
-                {warning.message}
-              </li>
-            ))}
-          </ul>
+          <ul>{graph.warnings.map((warning, index) => <li key={`${warning.kind}:${index}`}>{warning.message}</li>)}</ul>
         </div>
       )}
 
-      {graphMode === 'heuristic' && displayGraph.clusters.length > 0 && (
-        <div className="flow-cluster-controls">
-          <strong>Heuristic groups</strong>
-          <div>
-            {displayGraph.clusters.map((cluster) => {
-              const expanded = expandedClusters.has(cluster.id);
-              return (
-                <button
-                  key={cluster.id}
-                  type="button"
-                  className={expanded ? 'expanded' : ''}
-                  onClick={() => setExpandedClusters((current) => toggleSet(current, cluster.id))}
-                >
-                  {expanded ? 'Collapse' : 'Expand'} {cluster.label} · {cluster.nodeCount} nodes
-                  {cluster.unmetDemandCount > 0 && ` · unmet ${formatNumber(cluster.unmetDemandQuantity)}`}
-                  {cluster.surplusCount > 0 && ` · surplus ${formatNumber(cluster.surplusQuantity)}`}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {visualGraph.notices
+        .filter((notice) => graphMode !== 'optimizer-overlay' || notice.severity !== 'warning')
+        .map((notice) => <output key={notice.code} className={`flow-overlay-note ${notice.severity}`}><strong>{notice.code}</strong><span>{notice.message}</span></output>)}
+      {layoutResult && !layoutResult.ok && <output className="flow-overlay-note warning"><strong>Layout unavailable</strong><span>{layoutResult.message}</span></output>}
 
-      {graph.nodes.length === 0 ? (
+      {visualGraph.nodes.length === 0 ? (
         <p className="muted">No active positive flows or positive diagnostics were found in this result.</p>
       ) : (
         <div className="flow-graph-with-details">
-        <div className="flow-graph-canvas">
-          <div className="flow-graph-legend">
-            <span className="legend-swatch external" /> External supply
-            <span className="legend-swatch recipe" /> Recipe
-            <span className="legend-swatch item" /> Item
-            <span className="legend-swatch unmet" /> Unmet demand
-            <span className="legend-swatch surplus" /> Surplus
+          <div className="flow-graph-canvas rf-flow-canvas" data-testid="react-flow-shell">
+            <div className="flow-graph-legend">
+              <span className="legend-swatch external" /> External supply
+              <span className="legend-swatch recipe" /> Recipe
+              <span className="legend-swatch item" /> Item / pool
+              <span className="legend-swatch unmet" /> Unmet demand
+              <span className="legend-swatch surplus" /> Surplus
+            </div>
+            {!layoutResult && <p className="muted rf-flow-status">Laying out graph…</p>}
+            {layoutGraph && (
+              <ReactFlow nodes={flowNodes} edges={flowEdges} fitView nodesDraggable={false} nodesConnectable={false} elementsSelectable onNodeClick={(_, node) => setSelectedId(node.id)} onEdgeClick={(_, edge) => setSelectedId(edge.id)}>
+                <Background />
+                <Controls showInteractive={false} />
+              </ReactFlow>
+            )}
           </div>
-          <svg viewBox={`0 0 ${layout.width} ${layout.height}`} className="flow-graph-svg" role="img">
-            <title>Node-link view of active recipe, item, and diagnostic flows</title>
-            <g className="flow-edges">
-              {displayGraph.edges.map((edge) => {
-                const source = nodeById.get(edge.source);
-                const target = nodeById.get(edge.target);
-                if (!source || !target) return null;
-                return <FlowGraphEdge key={edge.id} edge={edge} source={source} target={target} />;
-              })}
-            </g>
-            <g className="flow-nodes">
-              {positionedNodes.map((node) => (
-                <FlowGraphNode
-                  key={node.id}
-                  node={node}
-                  selected={selectedId === node.id}
-                  onSelect={setSelectedId}
-                  overlayClusterId={overlay?.available && node.kind === 'recipe' && node.recipeId ? overlay.recipeToCluster.get(node.recipeId) : undefined}
-                />
-              ))}
-            </g>
-          </svg>
-        </div>
-        <NodeDetails details={selectedDetails} />
+          <NodeDetails details={selectedDetails} />
         </div>
       )}
     </section>
@@ -198,118 +125,73 @@ export function FlowGraph({ graph, result, initialMode = 'raw' }: { graph: Activ
 
 const GRAPH_MODES: Array<{ id: FlowGraphMode; label: string; hint: string }> = [
   { id: 'raw', label: 'Raw LP flow', hint: 'Ungrouped' },
-  { id: 'heuristic', label: 'Heuristic grouping', hint: 'Collapse dense areas' },
   { id: 'optimizer-overlay', label: 'Optimizer overlay', hint: 'Show clusters' },
 ];
 
-function FlowGraphEdge({ edge, source, target }: { edge: DisplayFlowEdge; source: PositionedNode; target: PositionedNode }) {
-  const direction = target.x >= source.x ? 1 : -1;
-  const control = Math.max(70, Math.abs(target.x - source.x) * 0.48);
-  const path = `M ${source.x} ${source.y} C ${source.x + control * direction} ${source.y}, ${target.x - control * direction} ${target.y}, ${target.x} ${target.y}`;
-  const labelX = (source.x + target.x) / 2;
-  const labelY = (source.y + target.y) / 2 - 7;
-  return (
-    <g className={`flow-edge ${edge.kind} ${edge.collapsed ? 'collapsed' : ''}`}>
-      <path d={path} pathLength={1} />
-      <text x={labelX} y={labelY} textAnchor="middle">
-        {formatNumber(edge.quantity)}
-      </text>
-    </g>
-  );
+function defaultGraphMode(graph: ActiveFlowGraph, result: SolveResultDto, explorerMetadataAvailable: boolean): FlowGraphMode {
+  return buildSolveResultVisualGraph(graph, result, { explorerMetadataAvailable }).mode === 'sparse-overview' ? 'optimizer-overlay' : 'raw';
 }
 
-function FlowGraphNode({ node, selected, onSelect, overlayClusterId }: { node: PositionedNode; selected: boolean; onSelect: (id: string) => void; overlayClusterId?: string }) {
-  if (node.kind === 'cluster') {
-    return (
-      <g className={`flow-node cluster ${selected ? 'selected' : ''}`} transform={`translate(${node.x} ${node.y})`} onClick={() => onSelect(node.id)} onKeyDown={(event) => selectFromKeyboard(event, node.id, onSelect)} role="button" tabIndex={0}>
-        <circle r={NODE_RADIUS + 11} />
-        <text className="node-label" x={0} y={-34} textAnchor="middle">{node.label}</text>
-        <text className="node-quantity" x={0} y={5} textAnchor="middle">{node.cluster.nodeCount} nodes</text>
-        {(node.cluster.unmetDemandCount > 0 || node.cluster.surplusCount > 0) && (
-          <text className="node-badge" x={0} y={45} textAnchor="middle">
-            {node.cluster.unmetDemandCount > 0 ? `unmet ${formatNumber(node.cluster.unmetDemandQuantity)}` : ''}
-            {node.cluster.unmetDemandCount > 0 && node.cluster.surplusCount > 0 ? ' · ' : ''}
-            {node.cluster.surplusCount > 0 ? `surplus ${formatNumber(node.cluster.surplusQuantity)}` : ''}
-          </text>
-        )}
-      </g>
-    );
+export function normalizeMode(mode: FlowGraphMode): FlowGraphMode {
+  return mode === 'heuristic' ? 'raw' : mode;
+}
+
+export function selectedVisualIdExists(visualGraph: VisualGraph, id: string): boolean {
+  return visualGraph.nodes.some((node) => node.id === id) || visualGraph.edges.some((edge) => edge.id === id);
+}
+
+function OptimizerOverlayNotice({ visualGraph }: { visualGraph: VisualGraph }) {
+  if (visualGraph.mode === 'sparse-overview') {
+    return <div className="flow-overlay-note success"><strong>Overlay source</strong><span>Sparse clustering. Complete active recipe mapping.</span></div>;
   }
-  return (
-    <g className={`flow-node ${node.kind} ${node.diagnosticKind ?? ''} ${overlayClusterId ? `optimizer-overlay cluster-accent-${clusterAccent(overlayClusterId)}` : ''} ${selected ? 'selected' : ''}`} transform={`translate(${node.x} ${node.y})`} onClick={() => onSelect(node.id)} onKeyDown={(event) => selectFromKeyboard(event, node.id, onSelect)} role="button" tabIndex={0}>
-      <circle r={NODE_RADIUS} />
-      <text className="node-label" x={0} y={-24} textAnchor="middle">
-        {shortLabel(node.label)}
-      </text>
-      {node.quantity !== undefined && (
-        <text className="node-quantity" x={0} y={35} textAnchor="middle">
-          {formatNumber(node.quantity)}
-        </text>
-      )}
-      {overlayClusterId && (
-        <text className="node-overlay-badge" x={0} y={node.quantity !== undefined ? 52 : 35} textAnchor="middle">
-          C {shortClusterLabel(overlayClusterId)}
-        </text>
-      )}
-    </g>
-  );
+  const reason = visualGraph.notices[0]?.message ?? 'Sparse cluster overview is unavailable.';
+  return <output className="flow-overlay-note warning"><strong>Overlay unavailable</strong><span>{reason} Displaying raw projection instead.</span></output>;
 }
 
-function clusterAccent(clusterId: string) {
-  let hash = 0;
-  for (const char of clusterId) hash = (hash + char.charCodeAt(0)) % 6;
-  return hash + 1;
+function toReactFlowNodes(layout: PositionedVisualGraph, selectedId: string | null): Node[] {
+  return layout.nodes.map((node) => ({
+    id: node.id,
+    position: { x: node.x, y: node.y },
+    data: { label: <FlowNodeLabel node={node} /> },
+    className: `rf-flow-node rf-flow-node-${nodeClass(node)} ${selectedId === node.id ? 'selected' : ''}`,
+    style: { width: node.width, height: node.height },
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
+    selected: selectedId === node.id,
+    type: 'default',
+    draggable: false,
+    selectable: true,
+    connectable: false,
+    focusable: true,
+    ariaLabel: node.label,
+  }));
 }
 
-function shortClusterLabel(clusterId: string) {
-  return clusterId.length > 10 ? `${clusterId.slice(0, 9)}…` : clusterId;
+export function toReactFlowEdges(layout: PositionedVisualGraph, selectedId: string | null): Edge[] {
+  return layout.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    label: edgeLabel(edge),
+    className: `rf-flow-edge rf-flow-edge-${edge.visualKind} ${selectedId === edge.id ? 'selected' : ''}`,
+    selected: selectedId === edge.id,
+    animated: false,
+  }));
 }
 
-export function layoutFlowGraphNodes(nodes: DisplayFlowNode[]): FlowGraphLayout {
-  const columns = compactColumns([
-    nodes.filter((node) => node.kind === 'diagnostic' && node.diagnosticKind === 'external'),
-    nodes.filter((node) => node.kind === 'item'),
-    nodes.filter((node) => node.kind === 'recipe' || node.kind === 'cluster'),
-    nodes.filter((node) => node.kind === 'diagnostic' && node.diagnosticKind !== 'external'),
-  ]);
-  const maxRows = Math.max(1, ...columns.map((column) => column.length));
-  const hasClusterNode = nodes.some((node) => node.kind === 'cluster');
-  const totalNodes = nodes.length;
-  const columnGap = adaptiveColumnGap(totalNodes);
-  const rowGap = adaptiveRowGap(maxRows, hasClusterNode);
-  const width = Math.max(MIN_GRAPH_WIDTH, HORIZONTAL_PAD * 2 + Math.max(0, columns.length - 1) * columnGap);
-  const availableWidth = Math.max(0, width - HORIZONTAL_PAD * 2);
-  const positionedNodes = columns.flatMap((columnNodes, columnIndex) => {
-    const x = columns.length === 1 ? width / 2 : HORIZONTAL_PAD + (availableWidth * columnIndex) / (columns.length - 1);
-    return columnNodes.map((node, rowIndex) => ({
-      ...node,
-      x,
-      y: TOP_PAD + rowIndex * rowGap,
-      column: columnIndex,
-    }));
-  });
-
-  return {
-    nodes: positionedNodes,
-    width,
-    height: TOP_PAD + (maxRows - 1) * rowGap + BOTTOM_PAD,
-  };
+function FlowNodeLabel({ node }: { node: PositionedVisualGraph['nodes'][number] }) {
+  return <div className="rf-flow-node-label"><strong>{shortLabel(node.label)}</strong>{node.visualKind === 'cluster' && <span>{node.recipeCount} recipes</span>}{node.visualKind === 'item-pool' && <span>item pool</span>}{node.visualKind === 'raw' && node.quantity !== undefined && <span>{formatNumber(node.quantity)}</span>}</div>;
 }
 
-function compactColumns(columns: DisplayFlowNode[][]) {
-  return columns.filter((column) => column.length > 0);
+function nodeClass(node: VisualGraphNode) {
+  if (node.visualKind === 'cluster') return 'cluster';
+  if (node.visualKind === 'item-pool') return 'item-pool';
+  return node.kind === 'diagnostic' ? `diagnostic-${node.diagnosticKind ?? 'unknown'}` : node.kind;
 }
 
-function adaptiveColumnGap(totalNodes: number) {
-  if (totalNodes > 48) return 230;
-  if (totalNodes > 24) return 210;
-  if (totalNodes > 12) return 188;
-  return 168;
-}
-
-function adaptiveRowGap(maxRows: number, hasClusterNode: boolean) {
-  const base = maxRows > 22 ? 42 : maxRows > 14 ? 48 : maxRows > 7 ? 56 : 66;
-  return hasClusterNode ? Math.max(base, 72) : base;
+function edgeLabel(edge: VisualGraphEdge) {
+  const quantity = 'quantity' in edge ? formatNumber(edge.quantity) : '';
+  return edge.itemId ? `${edge.itemId} · ${quantity}` : quantity;
 }
 
 function formatNumber(value: number) {
@@ -318,17 +200,4 @@ function formatNumber(value: number) {
 
 function shortLabel(label: string) {
   return label.length > 34 ? `${label.slice(0, 31)}…` : label;
-}
-
-function toggleSet(current: Set<string>, id: string) {
-  const next = new Set(current);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  return next;
-}
-
-function selectFromKeyboard(event: KeyboardEvent<SVGGElement>, id: string, onSelect: (id: string) => void) {
-  if (event.key !== 'Enter' && event.key !== ' ') return;
-  event.preventDefault();
-  onSelect(id);
 }

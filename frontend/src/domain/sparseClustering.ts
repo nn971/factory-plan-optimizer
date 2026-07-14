@@ -55,7 +55,6 @@ export function componentLabel(name: string): string {
   const special: Record<string, string> = {
     active_recipe_count: 'active recipes',
     active_item_count: 'active items',
-    boundary_flow_amount: 'flow estimate',
     boundary_port_types: 'net ports',
     boundary_port_type_count: 'net ports',
     candidate_edge_count: 'candidate edges',
@@ -118,7 +117,6 @@ function cappedArrayEntries(result: SparseClusteringResultDto): Array<[string, S
   return [
     ['cluster_summaries', result.cluster_summaries],
     ['recipe_assignments', result.recipe_assignments],
-    ['boundary_flows', result.boundary_flows],
     ['boundary_port_types', result.boundary_port_types],
     ['external_boundary_port_types', result.external_boundary_port_types],
     ['surplus_unmet', result.surplus_unmet_summary],

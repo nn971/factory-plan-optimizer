@@ -7,8 +7,8 @@ successful LP result and assigns active recipes to diagnostic clusters; it does 
 change the solved plan.
 
 The old strongest-edge union strategy is obsolete. Recipe-to-recipe sparse graph
-edges are still built as dependency/affinity hints and for boundary-flow
-diagnostics, but they are no longer the primary clustering objective.
+edges are still built as dependency/affinity hints for clustering refinement, but
+they are not exported as source-to-target item-flow allocations.
 
 ## Net ports and objective
 
@@ -40,7 +40,8 @@ flow_cost = flow_cost_weight * total absolute cluster item net
 ```
 
 `flow_cost` is based on absolute cluster net balance, not exact routed crossing
-flow. Recipe-to-recipe boundary flows remain proportional diagnostics only.
+flow. Source-target item allocation is not reported; cluster net ports are the
+authoritative cluster interface.
 
 `boundary_port_type_count` is retained for compatibility, but it now means total
 net port count. The explicit `net_port_count` field is the preferred terminology.
@@ -103,7 +104,7 @@ unchanged from the sparse clustering request shape.
 ## Reported diagnostics
 
 Results are summary-first and may include capped arrays for cluster summaries,
-recipe assignments, boundary flows, net boundary port types, external diagnostic
+recipe assignments, net boundary port types, external diagnostic
 rows, surplus/unmet rows, and hub summaries. Large arrays carry `total_count` and
 `truncated` metadata.
 
@@ -111,6 +112,8 @@ Cluster summaries include recipe ids/counts and net input/output/total port coun
 `boundary_port_types.items` contains net-port rows with `net_amount`. External rows
 use `source_or_demand_amount`; this is the source/demand amount associated with a
 diagnostic outside interface, not exact routed flow and not an objective port.
+Sparse overview visualization renders each net port through an item-pool node:
+cluster output -> item pool -> cluster input.
 
 ## Limitations and known risks
 

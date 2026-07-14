@@ -11,6 +11,8 @@
     "check:boundaries": "node scripts/check-boundaries.mjs"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.2",
+    "elkjs": "^0.11.1",
     "react": "latest",
     "react-dom": "latest"
   },

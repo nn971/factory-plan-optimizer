@@ -32,9 +32,15 @@ TOLERANCE = 1e-7
 UNMET_DEMAND_PENALTY_RATE = 1e9
 EXACT_ACCEPTED_INPUTS = frozenset(
     {
+        "bitumen",
+        "crude-oil",
+        "geothermal-water",
         "kerogen",
         "native-flora",
+        "natural-gas",
+        "oil-sand",
         "phosphate-rock",
+        "raw-borax",
         "raw-coal",
         "stone",
         "sulfur",
@@ -45,9 +51,14 @@ SCIENCE_MILESTONE_ORDER = (
     "automation-science-pack",
     "py-science-pack-1",
     "logistic-science-pack",
-    "py-science-pack-2",
     "military-science-pack",
+    "py-science-pack-2",
     "chemical-science-pack",
+    "py-science-pack-3",
+    "production-science-pack",
+    "py-science-pack-4",
+    "utility-science-pack",
+    "space-science-pack",
 )
 SCIENCE_MILESTONE_INDEX = {
     item_id: index for index, item_id in enumerate(SCIENCE_MILESTONE_ORDER)

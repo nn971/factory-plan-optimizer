@@ -34,15 +34,15 @@ LEGACY_DEFAULT_PACKAGE_ID = "default-first-3-science-v1"
 DEFAULT_EXTERNAL_INPUT_CAPACITY = 100000.0
 CURATED_SCIENCE_TARGETS = [
     "automation-science-pack",
-    "logistic-science-pack",
     "py-science-pack-1",
+    "logistic-science-pack",
 ]
 FIRST_SIX_SCIENCE_TARGETS = [
     "automation-science-pack",
     "py-science-pack-1",
     "logistic-science-pack",
-    "py-science-pack-2",
     "military-science-pack",
+    "py-science-pack-2",
     "chemical-science-pack",
 ]
 SCIENCE_TEST_RATE = 2.0

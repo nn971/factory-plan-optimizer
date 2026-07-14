@@ -61,6 +61,7 @@
 ## Scope and data gotchas
 
 - This repo is an abstract optimizer/testing UI, not blueprint generation; do not add neural nets, exact tile layout, train scheduling, spoilage, or GUI-heavy features unless explicitly requested.
+- Correct Pyanodon milestone order is: Automation -> py1 -> logistics -> military -> py2 -> chemical -> py3 -> production -> py4 -> utility -> space.
 - Keep examples under `examples/` small enough to verify by hand; `examples/data/toy_iron.factory-data.json` is the first canonical package.
 - Importer workflow writes reproducible artifacts under `data/generated/` from `data/raw/default-data-raw-dump.json`; use `data/README.md` for regeneration commands.
 - Do not commit real saves, mod zips, full `data.raw` dumps, or generated large datasets. `.omo/` is reserved for agent scratch state.

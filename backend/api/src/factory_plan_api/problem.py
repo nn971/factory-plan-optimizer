@@ -37,9 +37,14 @@ SCIENCE_TARGET_DEMANDS = [
     "automation-science-pack",
     "py-science-pack-1",
     "logistic-science-pack",
-    "py-science-pack-2",
     "military-science-pack",
+    "py-science-pack-2",
     "chemical-science-pack",
+    "py-science-pack-3",
+    "production-science-pack",
+    "py-science-pack-4",
+    "utility-science-pack",
+    "space-science-pack",
 ]
 SCIENCE_TARGET_ORDER = {
     item_id: index for index, item_id in enumerate(SCIENCE_TARGET_DEMANDS)
